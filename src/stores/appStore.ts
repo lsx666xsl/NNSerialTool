@@ -1,0 +1,797 @@
+import { computed, ref, watch } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import type {
+  ConnectionSession,
+  GlobalMessage,
+  MessageDirection,
+  NetConfig,
+  QuickCommand,
+  SendSettings,
+  SerialConfig,
+  SerialPortInfo,
+  SessionMessage,
+  ThemeMode,
+} from '../types';
+import { readStorage, writeStorage } from '../utils/storage';
+import { decodeBytes, nowText, todayText } from '../utils/format';
+import { netSessionName, sessionEndpoint } from '../utils/session';
+
+// ==================================================================
+// 单例应用状态仓：整个应用只有一份，各组件直接 import 使用。
+// initApp()/disposeApp() 负责事件监听与定时器的装配和清理，由 App.vue 调用。
+// ==================================================================
+
+// ---------- 下拉选项（来自 Rust 后端，多个会话共享同一份） ----------
+export const ports = ref<SerialPortInfo[]>([]);
+export const baudRates = ref<number[]>([]);
+export const dataBits = ref<number[]>([]);
+export const parityBits = ref<string[]>([]);
+export const stopBits = ref<number[]>([]);
+// 本机网卡 IPv4 列表，地址输入框旁的下拉快速选择用
+export const localIps = ref<string[]>([]);
+
+// ---------- 新建会话表单 ----------
+export const newSessionType = ref<ConnectionSession['type']>('serial');
+export const newSessionConfig = ref<SerialConfig>({
+  port: '',
+  baudRate: 9600,
+  dataBits: 8,
+  parityBits: 'None',
+  stopBits: 1,
+});
+export const newNetConfig = ref<NetConfig>({ host: '127.0.0.1', port: 9000, localPort: 9000, localHost: '' });
+
+// ---------- 会话与视图 ----------
+export const sessions = ref<ConnectionSession[]>([]);
+export const globalMessages = ref<GlobalMessage[]>([]);
+export const activeSessionId = ref<string>('');
+export const selectedSessionIds = ref<string[]>([]);
+export const viewMode = ref<import('../types').ViewMode>('detail');
+
+// ---------- 主题：浅色 / 深色 / 系统 ----------
+// themeMode 是用户的选择，appliedTheme 是最终落到 DOM 上的类名；
+// system 模式下监听系统 prefers-color-scheme，跟随系统实时切换。
+export const themeMode = ref<ThemeMode>(readStorage<ThemeMode>('st-theme', 'system'));
+// 模块加载时立即同步一次系统深浅状态，避免深色系统用户启动时闪一帧浅色
+const systemDarkQuery = window.matchMedia('(prefers-color-scheme: dark)');
+const systemDark = ref(systemDarkQuery.matches);
+export const appliedTheme = computed<import('../types').AppliedTheme>(() =>
+  themeMode.value === 'system' ? (systemDark.value ? 'dark' : 'light') : themeMode.value
+);
+watch(themeMode, (mode) => writeStorage('st-theme', mode));
+
+// ---------- 显示与日志偏好 ----------
+export const saveLog = ref(readStorage<boolean>('st-save-log', false));
+watch(saveLog, (v) => writeStorage('st-save-log', v));
+export const showTimestamp = ref(readStorage<boolean>('st-timestamp', true));
+watch(showTimestamp, (v) => writeStorage('st-timestamp', v));
+// 自动滚动默认关闭（安全默认：自动发送/高频模式下用户自己控制是否跟随）
+export const autoScroll = ref(readStorage<boolean>('st-autoscroll', false));
+watch(autoScroll, (v) => writeStorage('st-autoscroll', v));
+// 启动时强制关闭自动滚动（安全默认：不跨启动保留，用户需要时手动勾选）
+autoScroll.value = false;
+// 消息流字号（Ctrl+滚轮可在接收区实时调整，范围 11-22）
+export const fontSize = ref(readStorage<number>('st-font-size', 12));
+watch(fontSize, (v) => writeStorage('st-font-size', v));
+// 消息流字体
+export const fontFamily = ref(readStorage<string>('st-font-family', 'consolas'));
+watch(fontFamily, (v) => writeStorage('st-font-family', v));
+
+export const fontFamilyStack = computed(() => {
+  const table: Record<string, string> = {
+    consolas: "Consolas, 'Courier New', monospace",
+    mono: "'Cascadia Mono', 'JetBrains Mono', 'Fira Code', monospace",
+    system: "Inter, -apple-system, 'Segoe UI', Arial, sans-serif",
+  };
+  return table[fontFamily.value] ?? table.consolas;
+});
+
+// ---------- 发送选项与快捷命令 ----------
+export const sendSettings = ref<SendSettings>(
+  readStorage<SendSettings>('st-send-settings', {
+    newline: 'none',
+    clearAfterSend: false,
+    loopSend: false,
+    loopInterval: 1000,
+  })
+);
+// 安全默认：自动发送不跨启动保留，每次启动强制关闭
+sendSettings.value.loopSend = false;
+watch(sendSettings, (v) => writeStorage('st-send-settings', v), { deep: true });
+
+export const quickCommands = ref<QuickCommand[]>(
+  readStorage<QuickCommand[]>('st-quick-cmds', [
+    { name: 'AT', text: 'AT' },
+    { name: '版本', text: 'AT+GMR' },
+  ])
+);
+watch(quickCommands, (v) => writeStorage('st-quick-cmds', v), { deep: true });
+
+export const newlineSeq = computed(() => {
+  const table: Record<SendSettings['newline'], string> = { none: '', lf: '\n', crlf: '\r\n', cr: '\r' };
+  return table[sendSettings.value.newline];
+});
+
+// ---------- 总线过滤 ----------
+export const busSessionFilter = ref('all');
+export const busDirectionFilter = ref<'all' | MessageDirection>('all');
+export const busKeyword = ref('');
+
+// ---------- 派生状态 ----------
+export const activeSession = computed(() => sessions.value.find((item) => item.id === activeSessionId.value));
+export const splitSessions = computed(() => sessions.value.filter((item) => selectedSessionIds.value.includes(item.id)));
+export const connectedCount = computed(() => sessions.value.filter((item) => item.status === 'connected').length);
+
+// 新建会话按钮的可用性：串口需要选端口，网络需要端口合法（客户端/UDP 还需目标地址）
+export const canCreateSession = computed(() => {
+  if (newSessionType.value === 'serial') return !!newSessionConfig.value.port;
+  const net = newNetConfig.value;
+  const portOk = net.port >= 1 && net.port <= 65535;
+  const localOk = newSessionType.value !== 'udp' || (net.localPort >= 0 && net.localPort <= 65535);
+  const hostOk = newSessionType.value === 'tcp_server' || !!net.host.trim();
+  return portOk && localOk && hostOk;
+});
+
+// 总线过滤不修改原始日志，只决定当前界面显示哪些消息。
+export const filteredGlobalMessages = computed(() => {
+  const keyword = busKeyword.value.trim().toLowerCase();
+
+  return globalMessages.value.filter((message) => {
+    const matchSession = busSessionFilter.value === 'all' || message.sessionId === busSessionFilter.value;
+    const matchDirection = busDirectionFilter.value === 'all' || message.direction === busDirectionFilter.value;
+    const matchKeyword =
+      !keyword || message.text.toLowerCase().includes(keyword) || message.sessionName.toLowerCase().includes(keyword);
+    return matchSession && matchDirection && matchKeyword;
+  });
+});
+
+// ---------- 内部句柄 ----------
+let pollTimer: ReturnType<typeof setInterval>;
+let logTimer: ReturnType<typeof setInterval>;
+let unlistenSerialData: UnlistenFn | undefined;
+let unlistenSerialDisconnect: UnlistenFn | undefined;
+let unlistenNetData: UnlistenFn | undefined;
+let unlistenNetDisconnect: UnlistenFn | undefined;
+let unlistenAutoSent: UnlistenFn | undefined;
+let unlistenAutoSendStopped: UnlistenFn | undefined;
+
+// ---------- 日志落盘 ----------
+// 收发消息先进内存队列，每秒批量 flush 一次，避免高速串口下产生高频 invoke。
+const logQueue: string[] = [];
+
+export const enqueueLog = (session: ConnectionSession, direction: MessageDirection, text: string) => {
+  if (!saveLog.value) return;
+  logQueue.push(`[${nowText()}] [${sessionEndpoint(session)}] [${direction}] ${text.replace(/\r?\n$/, '')}\n`);
+};
+
+const flushLog = async () => {
+  if (logQueue.length === 0) return;
+  const content = logQueue.splice(0).join('');
+  try {
+    await invoke('serial_log_write', { date: todayText(), text: content });
+  } catch (e) {
+    console.error('写入日志失败:', e);
+  }
+};
+
+// ---------- 日志导出 ----------
+// 把当前流式消息框“所见即所得”地导出到 log 目录：
+// 时间戳 / RX-TX 标签本来就是拼在消息前的字符串，按会话当前的显示开关原样带上。
+export const exportSessionLog = async (session: ConnectionSession) => {
+  if (session.messages.length === 0) {
+    session.statusMsg = '当前没有消息可导出';
+    return;
+  }
+  const withTs = session.showTimestamp ?? true;
+  const lines = session.messages.map((m) => {
+    // 方向标签恒显示，与消息区 meta 行保持一致
+    let line = '';
+    if (withTs) line += `[${m.time}] `;
+    line += `[${m.direction}] `;
+    return line + m.text;
+  });
+  const header = `==== 导出 ${session.name} · ${nowText()} · ${session.messages.length} 条 ====\n`;
+  try {
+    await invoke('serial_log_write', { date: todayText(), text: header + lines.join('\n') + '\n' });
+    session.statusMsg = `已导出 ${session.messages.length} 条到 log/serial_${todayText()}.log`;
+  } catch (e) {
+    session.statusMsg = `导出失败: ${e}`;
+  }
+};
+
+// ---------- 消息写入 ----------
+// 每次收发或状态变化都写一条总线消息 + 会话内消息。
+// 这里限制最多保留 2000/1000 条，避免高速数据流时前端内存无限增长。
+export const appendGlobalMessage = (session: ConnectionSession, direction: MessageDirection, text: string) => {
+  globalMessages.value.push({
+    id: `${Date.now()}-${Math.random()}`,
+    time: nowText(),
+    sessionId: session.id,
+    sessionName: session.name,
+    direction,
+    text,
+  });
+
+  if (globalMessages.value.length > 2000) {
+    globalMessages.value.splice(0, globalMessages.value.length - 2000);
+  }
+};
+
+export const appendSessionMessage = (session: ConnectionSession, direction: MessageDirection, text: string) => {
+  const message: SessionMessage = {
+    id: `${Date.now()}-${Math.random()}`,
+    time: nowText(),
+    direction,
+    text,
+  };
+  session.messages.push(message);
+
+  if (session.messages.length > 2000) {
+    session.messages.splice(0, session.messages.length - 2000);
+    // 静默丢弃会让用户误以为数据都在，裁剪时提示一次并指路日志开关
+    if (!session.warnedOverflow) {
+      session.warnedOverflow = true;
+      session.messages.push({
+        id: `${Date.now()}-${Math.random()}`,
+        time: nowText(),
+        direction: 'INFO',
+        text: '— 消息已达 2000 条上限，最早的数据已移出界面；开启「保存日志到 log 目录」可留存完整数据 —',
+      });
+    }
+  }
+};
+
+// ---------- 选项刷新 ----------
+export const refreshPorts = async () => {
+  try {
+    const list = await invoke<SerialPortInfo[]>('serial_list_ports');
+    // 内容无变化时不更新引用，避免每 2 秒的轮询触发无谓的重渲染（也是“卡顿感”的来源之一）
+    const changed =
+      list.length !== ports.value.length ||
+      list.some((p, i) => p.portnum !== ports.value[i]?.portnum || p.portproduct !== ports.value[i]?.portproduct);
+    if (changed) ports.value = list;
+    if (!newSessionConfig.value.port && ports.value.length > 0) {
+      newSessionConfig.value.port = ports.value[0].portnum;
+    }
+  } catch (e) {
+    console.error('获取串口失败:', e);
+  }
+};
+
+export const refreshOptions = async () => {
+  try {
+    baudRates.value = await invoke<number[]>('serial_baudrate_list');
+    dataBits.value = await invoke<number[]>('serial_databit_list');
+    parityBits.value = await invoke<string[]>('serial_paritybit_list');
+    stopBits.value = await invoke<number[]>('serial_stopbit_list');
+    localIps.value = await invoke<string[]>('net_local_ips');
+  } catch (e) {
+    console.error('获取下拉选项失败:', e);
+  }
+};
+
+// ---------- 自定义波特率 ----------
+export const addCustomBaudRate = (raw: string) => {
+  const val = parseInt(raw, 10);
+  if (isNaN(val) || val <= 0) return false;
+
+  if (!baudRates.value.includes(val)) {
+    baudRates.value.push(val);
+    baudRates.value.sort((a, b) => a - b);
+  }
+
+  newSessionConfig.value.baudRate = val;
+  return true;
+};
+
+// ---------- 会话管理 ----------
+// 创建会话只是把配置加入前端列表，不会马上占用端口。
+// 用户点击“打开连接”时，才会通过 invoke 调用 Rust 后端真正建立连接。
+export const createSession = () => {
+  if (!canCreateSession.value) return;
+
+  // 串口会话重名检测：同端口会话追加 #2/#3 后缀
+  const isSerial = newSessionType.value === 'serial';
+  const samePortCount = isSerial
+    ? sessions.value.filter((item) => item.config.port === newSessionConfig.value.port).length
+    : 0;
+  const serialName =
+    samePortCount === 0 ? newSessionConfig.value.port : `${newSessionConfig.value.port} #${samePortCount + 1}`;
+
+  const session: ConnectionSession = isSerial
+    ? {
+        id: `serial-${newSessionConfig.value.port}-${Date.now()}`,
+        name: serialName,
+        type: 'serial',
+        status: 'closed',
+        config: { ...newSessionConfig.value },
+        sendText: '',
+        messages: [],
+        messageCount: 0,
+        statusMsg: '已创建，等待打开',
+        showTimestamp: true,
+        filterRx: true,
+        filterTx: true,
+      }
+    : {
+        id: `net-${newSessionType.value}-${Date.now()}`,
+        name: netSessionName(newSessionType.value, newNetConfig.value),
+        type: newSessionType.value,
+        status: 'closed',
+        config: { ...newSessionConfig.value },
+        net: { ...newNetConfig.value },
+        sendText: '',
+        messages: [],
+        messageCount: 0,
+        statusMsg: '已创建，等待打开',
+        showTimestamp: true,
+        filterRx: true,
+        filterTx: true,
+      };
+
+  sessions.value.push(session);
+  // 关键：从响应式数组取回代理对象再使用——
+  // 局部变量 session 是原始对象，直接改它的 status 不会触发 UI 更新（状态不同步 bug 的根因）
+  const stored = sessions.value[sessions.value.length - 1];
+  activeSessionId.value = stored.id;
+  if (!selectedSessionIds.value.includes(stored.id)) {
+    selectedSessionIds.value.push(stored.id);
+  }
+
+  // 添加后默认自动打开连接（用户预期：建好即用）
+  void openConnection(stored);
+};
+
+export const removeSession = (session: ConnectionSession) => {
+  if (session.status === 'connected') {
+    session.statusMsg = '请先关闭连接，再删除会话';
+    appendGlobalMessage(session, 'INFO', session.statusMsg);
+    appendSessionMessage(session, 'INFO', session.statusMsg);
+    return;
+  }
+
+  sessions.value = sessions.value.filter((item) => item.id !== session.id);
+  selectedSessionIds.value = selectedSessionIds.value.filter((id) => id !== session.id);
+
+  if (activeSessionId.value === session.id) {
+    activeSessionId.value = sessions.value[0]?.id ?? '';
+  }
+};
+
+export const toggleSplitSession = (sessionId: string) => {
+  if (selectedSessionIds.value.includes(sessionId)) {
+    selectedSessionIds.value = selectedSessionIds.value.filter((id) => id !== sessionId);
+  } else {
+    selectedSessionIds.value.push(sessionId);
+  }
+};
+
+// ---------- 打开 / 关闭 ----------
+const openSerial = async (session: ConnectionSession) => {
+  try {
+    const result = await invoke<string>('serial_open', {
+      port: session.config.port,
+      baudRate: session.config.baudRate,
+      dataBits: session.config.dataBits,
+      parityBits: session.config.parityBits,
+      stopBits: session.config.stopBits,
+    });
+    session.status = 'connected';
+    session.statusMsg = result;
+    appendGlobalMessage(session, 'INFO', result);
+    appendSessionMessage(session, 'INFO', result);
+    enqueueLog(session, 'INFO', result);
+  } catch (e) {
+    session.statusMsg = `打开失败: ${e}`;
+    appendGlobalMessage(session, 'INFO', session.statusMsg);
+    appendSessionMessage(session, 'INFO', session.statusMsg);
+  }
+};
+
+// 打开网络会话：key 用会话 id，服务端监听/UDP 绑定/客户端连接参数都来自会话配置。
+const openNet = async (session: ConnectionSession) => {
+  try {
+    const result = await invoke<string>('net_open', {
+      key: session.id,
+      kind: session.type,
+      host: session.net?.host ?? '',
+      port: session.net?.port ?? 0,
+      localPort: session.net?.localPort ?? 0,
+      localHost: session.net?.localHost ?? '',
+    });
+    session.status = 'connected';
+    session.statusMsg = result;
+    appendGlobalMessage(session, 'INFO', result);
+    appendSessionMessage(session, 'INFO', result);
+    enqueueLog(session, 'INFO', result);
+  } catch (e) {
+    session.statusMsg = `打开失败: ${e}`;
+    appendGlobalMessage(session, 'INFO', session.statusMsg);
+    appendSessionMessage(session, 'INFO', session.statusMsg);
+  }
+};
+
+// 按会话类型分发打开动作
+export const openConnection = (session: ConnectionSession) =>
+  session.type === 'serial' ? openSerial(session) : openNet(session);
+
+const closeSerial = async (session: ConnectionSession) => {
+  try {
+    const result = await invoke<string>('serial_close', { port: session.config.port });
+    session.status = 'closed';
+    session.statusMsg = result;
+    // 后端已在 close 时停止自动发送——前端勾选同步弹回，避免"重开后自动发送静默失效"
+    if (loopSessionId === session.id) {
+      sendSettings.value.loopSend = false;
+    }
+    appendGlobalMessage(session, 'INFO', result);
+    appendSessionMessage(session, 'INFO', result);
+    enqueueLog(session, 'INFO', result);
+  } catch (e) {
+    session.statusMsg = `关闭失败: ${e}`;
+    appendGlobalMessage(session, 'INFO', session.statusMsg);
+    appendSessionMessage(session, 'INFO', session.statusMsg);
+  }
+};
+
+// 关闭网络会话：Rust 侧 stop_flag 置位后读线程自动退出
+const closeNet = async (session: ConnectionSession) => {
+  try {
+    const result = await invoke<string>('net_close', { key: session.id });
+    session.status = 'closed';
+    session.statusMsg = result;
+    if (loopSessionId === session.id) {
+      sendSettings.value.loopSend = false;
+    }
+    appendGlobalMessage(session, 'INFO', result);
+    appendSessionMessage(session, 'INFO', result);
+    enqueueLog(session, 'INFO', result);
+  } catch (e) {
+    session.statusMsg = `关闭失败: ${e}`;
+    appendGlobalMessage(session, 'INFO', session.statusMsg);
+    appendSessionMessage(session, 'INFO', session.statusMsg);
+  }
+};
+
+// 按会话类型分发关闭动作
+export const closeConnection = (session: ConnectionSession) =>
+  session.type === 'serial' ? closeSerial(session) : closeNet(session);
+
+// 卡片上的连接开关：已连接则关闭，已关闭则重新打开
+export const toggleConnection = (session: ConnectionSession) =>
+  session.status === 'connected' ? closeConnection(session) : openConnection(session);
+
+// ---------- 发送 ----------
+// 发送入口统一走这里：附加换行符、写入总线/会话流、按需落日志。
+// textOverride 用于快捷命令与循环发送，此时不触发“发送后清空”。
+export const sendData = async (session: ConnectionSession, textOverride?: string) => {
+  const raw = textOverride ?? session.sendText;
+  if (!raw) return;
+
+  if (session.status !== 'connected') {
+    session.statusMsg = '请先打开连接再发送数据';
+    appendGlobalMessage(session, 'INFO', session.statusMsg);
+    appendSessionMessage(session, 'INFO', session.statusMsg);
+    return;
+  }
+
+  try {
+    if (session.type === 'serial') {
+      await invoke('serial_write', {
+        port: session.config.port,
+        data: raw + newlineSeq.value,
+      });
+    } else {
+      await invoke('net_write', {
+        key: session.id,
+        data: raw + newlineSeq.value,
+      });
+    }
+    appendGlobalMessage(session, 'TX', raw);
+    appendSessionMessage(session, 'TX', raw);
+    enqueueLog(session, 'TX', raw);
+    session.messageCount += 1;
+    if (textOverride === undefined && sendSettings.value.clearAfterSend) {
+      session.sendText = '';
+    }
+  } catch (e) {
+    session.statusMsg = `发送失败: ${e}`;
+    appendGlobalMessage(session, 'INFO', session.statusMsg);
+    appendSessionMessage(session, 'INFO', session.statusMsg);
+  }
+};
+
+export const clearSessionReceive = (session: ConnectionSession) => {
+  session.messages = [];
+  session.messageCount = 0;
+};
+
+// ---------- 消息转发 ----------
+// 把当前会话收到的数据原样发往目标会话（文本透传，跨串口/网络均可）。
+// 只在收到数据（RX）时触发，转发本身不会再次引发转发，天然无环路。
+export const forwardIfConfigured = (session: ConnectionSession, text: string) => {
+  const targetId = session.forwardTo;
+  if (!targetId) return;
+  const target = sessions.value.find((item) => item.id === targetId);
+  if (target && target.id !== session.id && target.status === 'connected') {
+    void sendData(target, text);
+  }
+};
+
+// ---------- 快捷命令 ----------
+export const addQuickCommand = () => {
+  quickCommands.value.push({ name: `命令${quickCommands.value.length + 1}`, text: '' });
+};
+
+export const removeQuickCommand = (index: number) => {
+  quickCommands.value.splice(index, 1);
+};
+
+export const sendQuickCommand = (cmd: QuickCommand) => {
+  const session = activeSession.value;
+  if (!session) return;
+  void sendData(session, cmd.text);
+};
+
+// ---------- 参数修改 ----------
+// ---------- 自动发送（后端定时线程） ----------
+// 勾选「自动」后由 Rust 侧专一线程按间隔直接写连接，绕过前端 IPC——
+// 高频发送（如 10ms）不再造成 IPC 堆积与 UI 卡顿。
+// 锁定“开启时的会话”，切换视图/会话不会改变目标，杜绝误发。
+let loopSessionId: string | undefined;
+let sendTextSyncTimer: ReturnType<typeof setTimeout> | undefined;
+
+const stopLoop = async () => {
+  if (loopSessionId) {
+    const target = sessions.value.find((item) => item.id === loopSessionId);
+    if (target) {
+      try {
+        if (target.type === 'serial') {
+          await invoke('serial_auto_send_stop', { port: target.config.port });
+        } else {
+          await invoke('net_auto_send_stop', { key: target.id });
+        }
+      } catch {
+        /* 会话可能已关闭，忽略 */
+      }
+    }
+    loopSessionId = undefined;
+  }
+};
+
+const startLoop = () => {
+  void (async () => {
+    await stopLoop();
+    const session = activeSession.value;
+    if (!session || session.status !== 'connected' || !session.sendText) {
+      sendSettings.value.loopSend = false;
+      return;
+    }
+    loopSessionId = session.id;
+    try {
+      if (session.type === 'serial') {
+        await invoke('serial_auto_send_start', {
+          port: session.config.port,
+          data: session.sendText + newlineSeq.value,
+          intervalMs: Math.max(10, sendSettings.value.loopInterval || 1000),
+        });
+      } else {
+        await invoke('net_auto_send_start', {
+          key: session.id,
+          data: session.sendText + newlineSeq.value,
+          intervalMs: Math.max(10, sendSettings.value.loopInterval || 1000),
+        });
+      }
+    } catch (e) {
+      session.statusMsg = `自动发送启动失败: ${e}`;
+      sendSettings.value.loopSend = false;
+    }
+  })();
+};
+
+// 发送框内容变化时（防抖 300ms）同步到后端定时线程，自动发送始终发最新内容。
+// 注意：watch 源需覆盖所有会话的 sendText，确保 loopSessionId 赋值前就已建立依赖。
+watch(
+  () => sessions.value.map((item) => item.sendText).join('\u0000'),
+  () => {
+    if (!sendSettings.value.loopSend || !loopSessionId) return;
+    if (sendTextSyncTimer) clearTimeout(sendTextSyncTimer);
+    sendTextSyncTimer = setTimeout(() => startLoop(), 300);
+  }
+);
+
+watch(
+  () => sendSettings.value.loopSend,
+  (on) => (on ? startLoop() : void stopLoop())
+);
+
+watch(
+  () => sendSettings.value.loopInterval,
+  () => {
+    if (sendSettings.value.loopSend) startLoop();
+  }
+);
+
+// ---------- 生命周期 ----------
+const onSystemThemeChange = (e: MediaQueryListEvent) => {
+  systemDark.value = e.matches;
+};
+
+// ---------- 接收合帧 ----------
+// 高波特率下 RX 事件频率可达每秒数百次，逐条渲染会造成卡顿；
+// 按会话累积文本，16ms（一帧）批量刷入消息流——显示粒度极限，转发也随之整批进行。
+// raw 为原始数据（用于转发透传），prefix 为显示前缀（如 TCP 来源地址），二者分离保证转发不带显示标记。
+const pendingRx = new Map<string, { session: ConnectionSession; raw: string; prefix: string }>();
+let rxFlushTimer: ReturnType<typeof setTimeout> | undefined;
+
+const flushPendingRx = () => {
+  rxFlushTimer = undefined;
+  for (const { session, raw, prefix } of pendingRx.values()) {
+    const display = prefix + raw;
+    session.messageCount += 1;
+    appendGlobalMessage(session, 'RX', display);
+    appendSessionMessage(session, 'RX', display);
+    enqueueLog(session, 'RX', raw.replace(/\r?\n$/, ''));
+    forwardIfConfigured(session, raw);
+  }
+  pendingRx.clear();
+};
+
+const enqueueRx = (session: ConnectionSession, raw: string, prefix = '') => {
+  const item = pendingRx.get(session.id);
+  if (item) {
+    item.raw += raw;
+  } else {
+    pendingRx.set(session.id, { session, raw, prefix });
+  }
+  if (!rxFlushTimer) rxFlushTimer = setTimeout(flushPendingRx, 16);
+};
+
+// TX 合帧：自动发送由 Rust 线程直接写出（绕过前端 sendData），通过 auto-sent 事件回填 TX 记录
+const pendingTx = new Map<string, { session: ConnectionSession; raw: string }>();
+let txFlushTimer: ReturnType<typeof setTimeout> | undefined;
+
+const flushPendingTx = () => {
+  txFlushTimer = undefined;
+  for (const { session, raw } of pendingTx.values()) {
+    session.messageCount += 1;
+    appendGlobalMessage(session, 'TX', raw);
+    appendSessionMessage(session, 'TX', raw);
+    enqueueLog(session, 'TX', raw.replace(/\r?\n$/, ''));
+  }
+  pendingTx.clear();
+};
+
+const enqueueTx = (session: ConnectionSession, raw: string) => {
+  const item = pendingTx.get(session.id);
+  if (item) {
+    item.raw += raw;
+  } else {
+    pendingTx.set(session.id, { session, raw });
+  }
+  if (!txFlushTimer) txFlushTimer = setTimeout(flushPendingTx, 16);
+};
+
+const findSerialSessionByPort = (port: string) =>
+  sessions.value.find((item) => item.type === 'serial' && item.config.port === port);
+
+// 装配事件监听与定时器，App.vue 在 onMounted 调用一次。
+export const initApp = async () => {
+  // system 模式下跟随系统深浅色变化。
+  systemDarkQuery.addEventListener('change', onSystemThemeChange);
+
+  await refreshOptions();
+  await refreshPorts();
+
+  // serial-read_data 是 Rust 读线程 emit 出来的事件。
+  // payload 里带 port，所以前端能知道这段数据属于哪个会话。
+  unlistenSerialData = await listen<{ port: string; data: number[] }>('serial-read_data', (event) => {
+    const session = findSerialSessionByPort(event.payload.port);
+    if (!session) return;
+
+    const text = decodeBytes(event.payload.data);
+    enqueueRx(session, text);
+  });
+
+  unlistenSerialDisconnect = await listen<string>('serial-disconnect', (event) => {
+    const session = findSerialSessionByPort(event.payload);
+    if (!session) return;
+
+    session.status = 'closed';
+    session.statusMsg = `串口 ${event.payload} 已断开`;
+    // 若自动发送作用于该会话，断开后弹回开关（后端任务已随 close 停止）
+    if (loopSessionId === session.id) {
+      sendSettings.value.loopSend = false;
+    }
+    appendGlobalMessage(session, 'INFO', session.statusMsg);
+    appendSessionMessage(session, 'INFO', session.statusMsg);
+    enqueueLog(session, 'INFO', session.statusMsg);
+    // 断开后主动清理 Rust 侧状态表，否则死句柄残留会导致同端口无法重新打开
+    invoke('serial_close', { port: session.config.port }).catch(() => {});
+  });
+
+  // auto-sent 是自动发送线程每次写出后 emit 的事件——回填 TX 记录（合帧）。
+  // key：串口为端口号，网络为会话 id。
+  unlistenAutoSent = await listen<{ key: string; data: number[] }>('auto-sent', (event) => {
+    const key = event.payload.key;
+    const session = findSerialSessionByPort(key) || sessions.value.find((item) => item.id === key);
+    if (!session) return;
+
+    enqueueTx(session, decodeBytes(event.payload.data));
+  });
+
+  // auto-send-stopped：自动发送线程写失败退出时上报——弹回开关并提示原因
+  unlistenAutoSendStopped = await listen<{ key: string; data: number[] }>('auto-send-stopped', (event) => {
+    const key = event.payload.key;
+    const session =
+      sessions.value.find((item) => item.id === key) ||
+      sessions.value.find((item) => item.type === 'serial' && item.config.port === key);
+    if (!session) return;
+    if (loopSessionId === session.id) {
+      sendSettings.value.loopSend = false;
+    }
+    const reason = decodeBytes(event.payload.data);
+    session.statusMsg = `自动发送已停止：${reason}`;
+    appendGlobalMessage(session, 'INFO', session.statusMsg);
+    appendSessionMessage(session, 'INFO', session.statusMsg);
+  });
+
+  // net-read_data 是网络读线程 emit 出来的事件。
+  // key 对应会话 id；from 为来源地址（TCP 服务端/UDP 场景下区分客户端）。
+  unlistenNetData = await listen<{ key: string; data: number[]; from: string }>('net-read_data', (event) => {
+    const session = sessions.value.find((item) => item.id === event.payload.key);
+    if (!session) return;
+
+    const text = decodeBytes(event.payload.data);
+    const prefix = event.payload.from ? `[${event.payload.from}] ` : '';
+    enqueueRx(session, text, prefix);
+  });
+
+  unlistenNetDisconnect = await listen<string>('net-disconnect', (event) => {
+    const session = sessions.value.find((item) => item.id === event.payload);
+    if (!session) return;
+
+    session.status = 'closed';
+    session.statusMsg = `连接已断开（${session.name}）`;
+    // 若自动发送作用于该会话，断开后弹回开关
+    if (loopSessionId === session.id) {
+      sendSettings.value.loopSend = false;
+    }
+    appendGlobalMessage(session, 'INFO', session.statusMsg);
+    appendSessionMessage(session, 'INFO', session.statusMsg);
+    enqueueLog(session, 'INFO', session.statusMsg);
+    // 断开后主动清理 Rust 侧状态表，否则死句柄残留会导致同 key 无法重新打开
+    invoke('net_close', { key: session.id }).catch(() => {});
+  });
+
+  pollTimer = setInterval(refreshPorts, 5000);
+  logTimer = setInterval(flushLog, 1000);
+};
+
+// 清理事件监听与定时器，避免窗口热更新后重复监听同一个事件。
+export const disposeApp = () => {
+  systemDarkQuery.removeEventListener('change', onSystemThemeChange);
+  clearInterval(pollTimer);
+  clearInterval(logTimer);
+  void stopLoop();
+  // 刷掉尚未落盘的合帧缓冲，保证最后一批数据不丢
+  if (rxFlushTimer) {
+    clearTimeout(rxFlushTimer);
+    rxFlushTimer = undefined;
+  }
+  flushPendingRx();
+  // 刷掉尚未落盘的 TX 合帧缓冲，保证最后一批自动发送记录不丢
+  if (txFlushTimer) {
+    clearTimeout(txFlushTimer);
+    txFlushTimer = undefined;
+  }
+  flushPendingTx();
+  void flushLog();
+  unlistenSerialData?.();
+  unlistenSerialDisconnect?.();
+  unlistenNetData?.();
+  unlistenNetDisconnect?.();
+  unlistenAutoSent?.();
+  unlistenAutoSendStopped?.();
+};

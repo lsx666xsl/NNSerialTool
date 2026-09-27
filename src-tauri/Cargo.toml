@@ -22,3 +22,4 @@ tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 serialport = "4.9.0"
 serde = "1.0.228"
+if-addrs = "0.13"

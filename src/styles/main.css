@@ -1,0 +1,403 @@
+/* ==================================================================
+   全局设计系统：基础重置 / 双主题 / 面板 / 按钮 / 输入控件 / 表单行
+   组件私有样式放在各自 .vue 的 scoped 块里，这里只放共享部分。
+   ================================================================== */
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* ============ 工作区布局与主题 ============ */
+.workspace {
+  display: flex;
+  height: 100%;
+  background: linear-gradient(180deg, #f7f7f9, #f1f2f5);
+  color: #23262b;
+  font-family: Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, Helvetica, sans-serif;
+  transition: background 0.24s ease, color 0.24s ease;
+}
+
+.sidebar {
+  width: 360px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  overflow: auto;
+  /* 侧栏滚动条隐藏，保持界面干净 */
+  scrollbar-width: none;
+}
+
+.sidebar::-webkit-scrollbar {
+  display: none;
+}
+
+.main-area {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 16px 16px 0;
+  gap: 14px;
+}
+
+/* ============ 面板与标题 ============ */
+.panel,
+.content-card {
+  background: #ffffff;
+  border: 1px solid rgba(23, 26, 33, 0.08);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
+}
+
+.panel {
+  padding: 16px;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.content-card {
+  flex: 1;
+  min-height: 0;
+  padding: 16px;
+  overflow: hidden;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 20px;
+}
+
+h2 {
+  font-size: 16px;
+}
+
+h3 {
+  font-size: 14px;
+}
+
+/* ============ 输入控件 ============ */
+/* select 自绘下拉箭头：原生箭头贴边且不跟随深色主题，这里统一距右缘 10px */
+input,
+select,
+textarea {
+  width: 100%;
+  border: 1px solid rgba(23, 26, 33, 0.16);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13px;
+  background-color: #ffffff;
+  color: #23262b;
+  outline: none;
+  transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
+}
+
+select {
+  appearance: none;
+  padding-right: 30px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 12px;
+  cursor: pointer;
+}
+
+/* 深色模式下 option 显式配色，避免 Windows WebView 用系统白底导致“泛白” */
+.theme-dark select option {
+  background-color: #2b2d30;
+  color: #dfdfe3;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: rgba(56, 116, 203, 0.65);
+  box-shadow: 0 0 0 3px rgba(56, 116, 203, 0.14);
+}
+
+input[type='checkbox'] {
+  width: auto;
+  accent-color: #579df5;
+  cursor: pointer;
+}
+
+input[type='number'] {
+  width: 72px;
+}
+
+/* 表单行内直接作为控件的数字输入（如 UDP 本地端口）与地址框同宽 */
+.form-row > input[type='number'] {
+  width: 100%;
+}
+
+label {
+  font-size: 13px;
+  color: #3b414b;
+}
+
+.form-row {
+  display: grid;
+  /* 默认两列：label + 控件，控件右缘与其他元素对齐（避免空列 gap 造成缩进） */
+  grid-template-columns: 64px 1fr;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* 含第三个子元素（如波特率行的 + 按钮）时启用第三列 */
+.form-row:has(> :nth-child(3)) {
+  grid-template-columns: 64px 1fr auto;
+}
+
+.form-row.compact-row {
+  grid-template-columns: 64px 1fr;
+}
+
+/* ============ 按钮 ============ */
+button {
+  border: none;
+  border-radius: 6px;
+  padding: 8px 14px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
+}
+
+/* 悬停上浮反馈仅作用于明确的动作按钮；
+   图标/开关/内嵌箭头（addr-arrow、mini-toggle、x-btn、status-dot 等）一律不做位移 */
+.primary-btn:hover:not(:disabled),
+.danger-btn:hover:not(:disabled),
+.ghost-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+button:hover:not(:disabled) {
+  transform: none;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.75;
+}
+
+.primary-btn {
+  background: linear-gradient(180deg, #3b6fd4, #3563c2);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(59, 111, 212, 0.25);
+}
+
+.primary-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #3563c2, #2f58b4);
+}
+
+.danger-btn {
+  background: linear-gradient(180deg, #d4534f, #c74541);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(212, 83, 79, 0.22);
+}
+
+.danger-btn:hover {
+  background: linear-gradient(180deg, #c74541, #b93b37);
+}
+
+.ghost-btn {
+  background: rgba(59, 111, 212, 0.08);
+  color: #3563c2;
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.14);
+}
+
+/* 小型图标按钮（+号、刷新）：主题蓝色调 */
+.small-btn {
+  width: 32px;
+  padding: 7px 0;
+  background: rgba(59, 111, 212, 0.1);
+  color: #3563c2;
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.25);
+}
+
+.small-btn:hover:not(:disabled) {
+  background: rgba(59, 111, 212, 0.18);
+}
+
+.full-btn {
+  width: 100%;
+  margin-top: 12px;
+}
+
+/* 跨组件共用：危险文字按钮 与 勾选标签（列表/详情的删除、勾选、选项都在用） */
+.danger-text {
+  background: transparent;
+  color: #c74541;
+  padding: 2px 6px;
+  font-weight: 500;
+}
+
+.check-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* ============ 空态提示 ============ */
+.empty-box {
+  padding: 18px;
+  border: 1px dashed rgba(23, 26, 33, 0.22);
+  border-radius: 8px;
+  color: #6b7280;
+  text-align: center;
+  background: rgba(248, 250, 252, 0.6);
+}
+
+.empty-box.large {
+  flex: 1;
+  display: grid;
+  place-items: center;
+}
+
+/* ============ 工具栏 ============ */
+.toolbar {
+  background: #ffffff;
+  border: 1px solid rgba(23, 26, 33, 0.08);
+  border-radius: 10px;
+  padding: 14px 18px;
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* ============ 深色主题（JetBrains 灰色系） ============ */
+.theme-dark {
+  background: linear-gradient(180deg, #1e1f22, #232529);
+  color: #dfdfe3;
+}
+
+.theme-dark .panel,
+.theme-dark .content-card,
+.theme-dark .toolbar {
+  background: #2b2d30;
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.32);
+}
+
+.theme-dark h1,
+.theme-dark h2,
+.theme-dark h3,
+.theme-dark strong {
+  color: #f4f4f6;
+}
+
+.theme-dark p,
+.theme-dark label {
+  color: #9da0a8;
+}
+
+.theme-dark input,
+.theme-dark select,
+.theme-dark textarea {
+  color: #dfdfe3;
+  background-color: #1e1f22;
+  border-color: rgba(255, 255, 255, 0.12);
+}
+
+.theme-dark select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239da0a8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+}
+
+.theme-dark input::placeholder,
+.theme-dark textarea::placeholder {
+  color: #6f737a;
+}
+
+.theme-dark input:focus,
+.theme-dark select:focus,
+.theme-dark textarea:focus {
+  background-color: #222427;
+  border-color: rgba(87, 157, 245, 0.6);
+  box-shadow: 0 0 0 3px rgba(87, 157, 245, 0.16);
+}
+
+.theme-dark .ghost-btn {
+  background: rgba(87, 157, 245, 0.12);
+  color: #8fbdf7;
+  box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.18);
+}
+
+.theme-dark .small-btn {
+  background: rgba(87, 157, 245, 0.12);
+  color: #8fbdf7;
+  box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.25);
+}
+
+.theme-dark .small-btn:hover:not(:disabled) {
+  background: rgba(87, 157, 245, 0.22);
+}
+
+.theme-dark .empty-box {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.18);
+  color: #9da0a8;
+}
+
+.theme-dark .danger-text {
+  color: #e8807c;
+}
+
+/* ============ 窄屏降级 ============ */
+/* 最小窗口 720x520 下的布局防护：收起侧栏为单列、网格降列数，防止字符与控件乱飞 */
+@media (max-width: 1100px) {
+  .workspace {
+    flex-direction: column;
+    overflow: auto;
+  }
+
+  .sidebar,
+  .main-area {
+    width: 100%;
+    padding: 12px;
+  }
+}
+
+@media (max-width: 760px) {
+  .toolbar {
+    flex-wrap: wrap;
+  }
+
+  .toolbar-actions {
+    justify-content: flex-start;
+  }
+}

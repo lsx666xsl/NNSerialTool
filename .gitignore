@@ -22,3 +22,16 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Claude Code (not used)
+.claude/
+CLAUDE.md
+
+# 运行日志（串口日志落盘目录，不上传）
+log/
+
+# 工作文档（工作日志/交接文档/审查记录，仅本地留存）
+doc/
+
+# AI 工具上下文（本地开发辅助，不上传）
+AGENTS.md

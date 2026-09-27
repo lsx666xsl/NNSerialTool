@@ -14,7 +14,10 @@
       {
         "title": "serialtool",
         "width": 800,
-        "height": 600
+        "height": 600,
+        "minWidth": 720,
+        "minHeight": 520,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --no-proxy-server"
       }
     ],
     "security": {
