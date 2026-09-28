@@ -8,7 +8,7 @@ export type UpdateInfo = {
   releaseUrl: string;
 };
 
-const REPO = 'lsx666xsl/Tauri-Rust-SerialTool';
+const REPO = 'lsx666xsl/Tauri-NNSerialTool';
 const RELEASE_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 
 // 语义化版本比较：返回 >0 表示 a 比 b 新（忽略 v 前缀，逐段数字比较）
