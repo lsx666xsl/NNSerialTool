@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watchEffect } from 'vue';
+import { onMounted, onUnmounted } from 'vue';
 import { appliedTheme, disposeApp, initApp, viewMode } from './stores/appStore';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -26,28 +26,15 @@ import UpdateButton from './components/UpdateButton.vue';
 import SplitView from './components/SplitView.vue';
 import ViewSwitch from './components/ViewSwitch.vue';
 
-// ---------- 整体 UI 缩放 ----------
-// 等比例缩放：以 1280px 宽为基准 1.0，随窗口宽度线性缩放，不设上限——
-// 横向拉长时侧栏、文字、控件按同一比例一起变大，布局比例与基准状态完全一致；
-// 仅保留 0.85 下限，防止最小窗口下过小影响可读性。
-const uiScale = ref(1);
-const updateUiScale = () => {
-  uiScale.value = Math.max(0.85, window.innerWidth / 1280);
-};
-watchEffect(() => {
-  document.documentElement.style.zoom = String(uiScale.value);
-});
-
 // App.vue 只负责布局骨架与生命周期装配；
 // 状态与动作集中在 stores/appStore.ts，界面拆分在 components/ 下。
+// 布局自适应窗口：横向拉宽时 UI 尺寸不变（纵向始终完整可见），
+// 多出的宽度自动分配给消息区等弹性区域；窄窗口有 720px 下限与换行/滚动保护。
 onMounted(() => {
-  window.addEventListener('resize', updateUiScale);
-  updateUiScale();
   void initApp();
 });
 
 onUnmounted(() => {
-  window.removeEventListener('resize', updateUiScale);
   disposeApp();
 });
 </script>
