@@ -7,7 +7,8 @@ import type { ViewMode } from '../types';
 const viewModes: Array<{ key: ViewMode; label: string; tip: string; blocks: number }> = [
   { key: 'detail', label: '单屏', tip: '单连接大视图，完整参数与独立收发区', blocks: 3 },
   { key: 'split', label: '分屏', tip: '勾选的多个连接并排显示，互不干扰', blocks: 4 },
-  { key: 'global', label: '总览', tip: '所有连接的收发按时间线汇成一条流', blocks: 3 },
+  { key: 'global', label: '总览', tip: '已加入总览的会话按时间线汇成一条流', blocks: 3 },
+  { key: 'forward', label: '转发', tip: '配置会话之间的数据转发规则', blocks: 2 },
 ];
 </script>
 
@@ -148,6 +149,20 @@ const viewModes: Array<{ key: ViewMode; label: string; tip: string; blocks: numb
 
 .mini-global i {
   height: 6px;
+}
+
+/* 转发：上下两块 + 连接 */
+.mini-forward {
+  grid-template-columns: 1fr;
+}
+
+.mini-forward i {
+  height: 8px;
+}
+
+.mini-forward i:last-child {
+  justify-self: end;
+  width: 60%;
 }
 
 /* 深色主题 */

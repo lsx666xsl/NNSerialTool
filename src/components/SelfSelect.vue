@@ -21,7 +21,10 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: string | number): void }>
 
 const open = ref(false);
 const wrapEl = ref<HTMLElement | null>(null);
+const popEl = ref<HTMLElement | null>(null);
 const popStyle = ref<{ top: string; left: string; width: string }>({ top: '0px', left: '0px', width: '0px' });
+// 展开时记录触发框位置：用于区分"会移动锚点的滚动"与"无关滚动"（如消息流自动滚动）
+let openRect: { left: number; top: number } | null = null;
 
 const currentLabel = computed(() => {
   const hit = props.options.find((o) => o.value === props.modelValue);
@@ -38,6 +41,7 @@ const toggle = () => {
   if (!box) return;
   const rect = box.getBoundingClientRect();
   popStyle.value = { top: `${rect.bottom}px`, left: `${rect.left}px`, width: `${rect.width}px` };
+  openRect = { left: rect.left, top: rect.top };
   open.value = true;
 };
 
@@ -52,8 +56,19 @@ const onDocClick = (e: MouseEvent) => {
   open.value = false;
 };
 
-// 页面滚动/窗口缩放时收起浮层，避免位置错位
-const onWinScrollOrResize = () => {
+// 滚动/缩放时收起浮层——但只收起"锚点真的移动了"的情况：
+// 浮层选项列表自身的滚动、以及不移动触发框的滚动（接收数据时消息流自动滚动）
+// 都不该把下拉关掉（否则接收期间下拉完全不可用、长列表永远滚不到底）
+const onWinScrollOrResize = (e: Event) => {
+  if (!open.value) return;
+  // 浮层内部滚动（选项列表滚动条）：直接忽略
+  if (e.target instanceof Node && popEl.value?.contains(e.target)) return;
+  // 触发框位置未变（如消息流滚动、无关容器的滚动）：忽略
+  const box = wrapEl.value;
+  if (box) {
+    const rect = box.getBoundingClientRect();
+    if (openRect && Math.abs(rect.left - openRect.left) < 1 && Math.abs(rect.top - openRect.top) < 1) return;
+  }
   open.value = false;
 };
 
@@ -83,7 +98,7 @@ onUnmounted(() => {
   </div>
 
   <Teleport to="body">
-    <div v-if="open" class="self-select-pop" :class="{ 'theme-dark': appliedTheme === 'dark' }" :style="popStyle">
+    <div v-if="open" ref="popEl" class="self-select-pop" :class="{ 'theme-dark': appliedTheme === 'dark' }" :style="popStyle">
       <div
         v-for="o in options"
         :key="o.value"

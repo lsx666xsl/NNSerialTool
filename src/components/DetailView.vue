@@ -13,27 +13,25 @@ import {
   openConnection,
   quickCommands,
   removeQuickCommand,
-  sendQuickCommand,
+  removeSession,
   sendData,
+  sendQuickCommand,
   sendSettings,
-  sessions,
 } from '../stores/appStore';
-import { sessionTypeLabel } from '../utils/session';
 
-// 单屏视图（参考 VOFA+ 布局）：连接参数在左侧卡片中，这里只保留收发主战场——
-// 一个矩形面板：上方为流式接收区，下方为发送栏（输入 + 发送 + 可折叠发送选项）。
-const showSendOptions = ref(false);
-
-// 转发目标：桥接可选的 forwardTo 字段（undefined=不转发）与 SelfSelect 的字符串值
-const forwardTarget = computed({
-  get: () => activeSession.value?.forwardTo ?? '',
-  set: (v) => {
-    if (activeSession.value) activeSession.value.forwardTo = String(v);
-  },
-});
-
-// 发送按钮与快捷命令仅在已连接时可用
+// 单屏大视图：接收流 + 工具带 + 发送栏 + 右侧拓展命令纵栏（SSCOM 风格）。
+// 旧"选项"折叠面板已移除：换行/发后清空并入工具带，快捷命令常驻右栏。
 const connected = computed(() => activeSession.value?.status === 'connected');
+
+// 拓展命令编辑模式：切换后按钮变成可编辑的名称/内容输入行
+const cmdEditing = ref(false);
+
+const newlineOptions = [
+  { value: 'none', label: '无' },
+  { value: 'lf', label: '\\n' },
+  { value: 'crlf', label: '\\r\\n' },
+  { value: 'cr', label: '\\r' },
+];
 </script>
 
 <template>
@@ -41,108 +39,121 @@ const connected = computed(() => activeSession.value?.status === 'connected');
     <div v-if="!activeSession" class="empty-box large">请选择或新建一个连接会话。</div>
 
     <template v-else>
-      <!-- 头部：会话名与状态信息 + 连接开关 -->
+      <!-- 头部：会话名 + 连接开关；已连接（红色关闭按钮）时右侧出现删除会话 X -->
       <div class="detail-header">
         <div class="detail-title">
           <h2>{{ activeSession.name }}</h2>
-          <p>{{ sessionTypeLabel(activeSession.type) }} · {{ activeSession.statusMsg }}</p>
         </div>
         <div class="button-group">
           <button v-if="activeSession.status === 'closed'" class="primary-btn" @click="openConnection(activeSession)">打开连接</button>
           <button v-else class="danger-btn" @click="closeConnection(activeSession)">关闭连接</button>
+          <button
+            v-if="activeSession.status === 'connected'"
+            class="x-session"
+            title="删除当前会话"
+            @click="removeSession(activeSession)"
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         </div>
       </div>
 
-      <!-- 收发合一面板：接收区 + 工具带（收发之间）+ 发送栏 -->
+      <!-- 收发合一面板：左（接收区+工具带+发送栏）+ 右（拓展命令纵栏） -->
       <div class="work-panel">
-        <MessageFlow
-          :messages="activeSession.messages"
-          :show-timestamp="activeSession.showTimestamp ?? true"
-          :filter-rx="activeSession.filterRx ?? true"
-          :filter-tx="activeSession.filterTx ?? true"
-        />
+        <div class="work-main">
+          <MessageFlow
+            :messages="activeSession.messages"
+            :show-timestamp="activeSession.showTimestamp ?? true"
+            :filter-rx="activeSession.filterRx ?? true"
+            :filter-tx="activeSession.filterTx ?? true"
+          />
 
-        <!-- 工具带：位于接收框与发送框之间 -->
-        <div class="panel-toolbar">
-          <label class="check-label" title="新消息到达时自动滚动到底部（向上翻看时自动暂停）">
-            <input type="checkbox" v-model="autoScroll" />
-            自动滚动
-          </label>
-          <button class="ghost-btn" title="把当前消息框全部内容（含时间戳/方向标签）导出为日志文件；保存路径可在设置中配置" @click="exportSessionLog(activeSession)">
-            导出
-          </button>
-          <button class="ghost-btn" @click="clearSessionReceive(activeSession)">清空</button>
-          <button class="ghost-btn toolbar-option" title="换行符 / 快捷命令 / 消息转发" @click="showSendOptions = !showSendOptions">
-            选项 {{ showSendOptions ? '▴' : '▾' }}
-          </button>
-        </div>
-
-        <!-- 发送栏：输入 + 自动发送 + 发送按钮（右下角框外） -->
-        <div class="send-row">
-          <textarea
-            v-model="activeSession.sendText"
-            class="send-input"
-            rows="2"
-            placeholder="输入要发送的数据（Ctrl+回车 发送）"
-            @keydown.ctrl.enter.prevent="sendData(activeSession)"
-          ></textarea>
-          <label class="auto-send" title="按设定的间隔自动发送发送框中的内容（作用于开启时的会话）">
-            <input type="checkbox" v-model="sendSettings.loopSend" />
-            自动
-            <NumberInput
-              v-model="sendSettings.loopInterval"
-              :min="10"
-              :max="600000"
-              :step="10"
-              class="auto-interval"
-              @click.stop
-            />
-            ms
-          </label>
-          <button class="primary-btn send-btn" :disabled="!connected" @click="sendData(activeSession)">发送</button>
-        </div>
-
-        <div v-if="showSendOptions" class="send-options">
-          <div class="option-row">
-            <label class="option-item">
+          <!-- 工具带：位于接收框与发送框之间 -->
+          <div class="panel-toolbar">
+            <button
+              class="mini-toggle"
+              :class="{ on: autoScroll }"
+              title="新消息到达时自动滚动到底部（向上翻看时自动暂停）"
+              @click="autoScroll = !autoScroll"
+            >
+              自动滚动
+            </button>
+            <button class="ghost-btn" title="把当前消息框全部内容（含时间戳/方向标签）导出为日志文件；保存路径可在设置中配置" @click="exportSessionLog(activeSession)">
+              导出
+            </button>
+            <button class="ghost-btn" @click="clearSessionReceive(activeSession)">清空</button>
+            <label class="toolbar-item" title="发送时附加的换行符">
               换行
-              <SelfSelect
-                v-model="sendSettings.newline"
-                :full="false"
-                :options="[
-                  { value: 'none', label: '无' },
-                  { value: 'lf', label: '\n' },
-                  { value: 'crlf', label: '\r\n' },
-                  { value: 'cr', label: '\r' },
-                ]"
-              />
+              <SelfSelect v-model="sendSettings.newline" :full="false" :options="newlineOptions" />
             </label>
-            <label class="check-label option-item">
-              <input type="checkbox" v-model="sendSettings.clearAfterSend" />
-              发送后清空
-            </label>
-            <label class="forward-label" title="把本会话收到的数据自动转发到目标会话">
-              转发到
-              <SelfSelect
-                v-model="forwardTarget"
-                :full="false"
-                :options="[
-                  { value: '', label: '不转发' },
-                  ...sessions.filter((x) => x.id !== activeSession!.id).map((x) => ({ value: x.id, label: x.name })),
-                ]"
-              />
-            </label>
+            <button
+              class="mini-toggle toolbar-end"
+              :class="{ on: sendSettings.clearAfterSend }"
+              title="发送后自动清空输入框"
+              @click="sendSettings.clearAfterSend = !sendSettings.clearAfterSend"
+            >
+              发后清空
+            </button>
           </div>
 
-          <div class="quick-cmds">
-            <span class="quick-title">快捷命令（点击发送到当前会话）</span>
-            <div v-for="(cmd, index) in quickCommands" :key="index" class="quick-cmd">
-              <input v-model="cmd.name" class="qc-name" placeholder="名称" />
-              <input v-model="cmd.text" class="qc-text" placeholder="内容" @keyup.enter="sendQuickCommand(cmd)" />
-              <button class="ghost-btn qc-send" :disabled="!connected" @click="sendQuickCommand(cmd)">发送</button>
-              <button class="danger-text qc-del" title="删除命令" @click="removeQuickCommand(index)">×</button>
-            </div>
-            <button class="ghost-btn qc-add" @click="addQuickCommand">+ 添加命令</button>
+          <!-- 发送栏：输入 + 自动发送 + 发送按钮（右下角框外）；窄窗口放不下时按钮换行 -->
+          <div class="send-row">
+            <textarea
+              v-model="activeSession.sendText"
+              class="send-input"
+              rows="2"
+              placeholder="输入要发送的数据（Ctrl+回车 发送）"
+              @keydown.ctrl.enter.prevent="sendData(activeSession)"
+            ></textarea>
+            <label class="auto-send" title="按设定的间隔自动发送发送框中的内容（作用于开启时的会话）">
+              <input type="checkbox" v-model="sendSettings.loopSend" />
+              自动
+              <NumberInput
+                v-model="sendSettings.loopInterval"
+                :min="10"
+                :max="600000"
+                :step="10"
+                class="auto-interval"
+                @click.stop
+              />
+              ms
+            </label>
+            <button class="primary-btn send-btn" :disabled="!connected" @click="sendData(activeSession)">发送</button>
+          </div>
+        </div>
+
+        <!-- 拓展命令纵栏：点击即发送到当前会话；编辑模式下可改名/改内容/删除 -->
+        <div class="cmd-strip">
+          <div class="cmd-head">
+            <span class="cmd-title">拓展命令</span>
+            <button class="mini-toggle" :class="{ on: cmdEditing }" @click="cmdEditing = !cmdEditing">
+              {{ cmdEditing ? '完成' : '编辑' }}
+            </button>
+          </div>
+          <div class="cmd-list">
+            <template v-if="!cmdEditing">
+              <button
+                v-for="(cmd, index) in quickCommands"
+                :key="index"
+                class="cmd-btn"
+                :disabled="!connected"
+                :title="cmd.text"
+                @click="sendQuickCommand(cmd)"
+              >
+                {{ cmd.name || `命令${index + 1}` }}
+              </button>
+            </template>
+            <template v-else>
+              <div v-for="(cmd, index) in quickCommands" :key="index" class="cmd-edit">
+                <input v-model="cmd.name" placeholder="名称" />
+                <input v-model="cmd.text" placeholder="内容" />
+                <button class="cmd-del" title="删除命令" @click="removeQuickCommand(index)">删除</button>
+              </div>
+            </template>
+            <button class="cmd-add" title="添加命令" @click="addQuickCommand">＋</button>
           </div>
         </div>
       </div>
@@ -164,24 +175,36 @@ const connected = computed(() => activeSession.value?.status === 'connected');
   gap: 12px;
 }
 
-.detail-title p {
-  margin: 4px 0 0;
-  font-size: 13px;
-  color: #6b7280;
-}
-
 .button-group {
   display: flex;
   align-items: center;
   gap: 12px;
 }
 
-/* 收发合一面板：接收区在上，发送栏在下 */
+/* 已连接时标题右侧的删除会话按钮：与红色关闭连接并排 */
+.x-session {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(199, 69, 65, 0.1);
+  color: #c74541;
+  box-shadow: none;
+}
+
+.x-session:hover {
+  background: rgba(199, 69, 65, 0.2);
+  transform: none;
+}
+
+/* 收发合一面板：左主区 + 右拓展命令栏 */
 .work-panel {
   flex: 1;
   min-height: 0;
   display: flex;
-  flex-direction: column;
   gap: 10px;
   background: rgba(243, 244, 246, 0.7);
   border: 1px solid rgba(23, 26, 33, 0.07);
@@ -189,7 +212,15 @@ const connected = computed(() => activeSession.value?.status === 'connected');
   padding: 12px;
 }
 
-/* 工具带：位于接收框与发送框之间 */
+.work-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* 工具带：自动滚动/导出/清空/换行/发后清空 */
 .panel-toolbar {
   display: flex;
   align-items: center;
@@ -200,15 +231,35 @@ const connected = computed(() => activeSession.value?.status === 'connected');
   flex-shrink: 0;
 }
 
-.panel-toolbar .check-label {
+.mini-toggle {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 999px;
+  background: rgba(23, 26, 33, 0.05);
+  color: #8a9099;
+  box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
+}
+
+.mini-toggle.on {
+  background: rgba(59, 111, 212, 0.12);
+  color: #3563c2;
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.3);
+}
+
+.toolbar-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #3b414b;
   white-space: nowrap;
 }
 
-.toolbar-option {
+.toolbar-end {
   margin-left: auto;
 }
 
-/* 发送栏：输入框 + 自动发送 + 发送按钮（右下角框外）；窄窗口放不下时按钮换行，不产生横向溢出 */
+/* 发送栏：输入框 + 自动发送 + 发送按钮（右下角框外） */
 .send-row {
   display: flex;
   align-items: flex-end;
@@ -250,87 +301,99 @@ const connected = computed(() => activeSession.value?.status === 'connected');
   flex-shrink: 0;
 }
 
-/* 发送选项折叠面板 */
-.send-options {
+/* 拓展命令纵栏（SSCOM 风格）：命令按钮纵向排列，点击即发送 */
+.cmd-strip {
+  width: 150px;
+  flex-shrink: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
-  padding: 10px;
   background: rgba(23, 26, 33, 0.03);
-  border: 1px dashed rgba(23, 26, 33, 0.14);
+  border: 1px dashed rgba(23, 26, 33, 0.12);
   border-radius: 8px;
-  flex-shrink: 0;
+  padding: 8px;
 }
 
-.option-row {
+.cmd-head {
   display: flex;
   align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-
-.option-item {
-  display: inline-flex;
-  align-items: center;
+  justify-content: space-between;
   gap: 6px;
 }
 
-.option-item select {
-  width: auto;
-  padding-right: 28px;
-}
-
-
-.forward-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-left: auto;
-}
-
-/* 快捷命令区 */
-.quick-cmds {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.quick-title {
+.cmd-title {
   font-size: 12px;
   color: #8a9099;
 }
 
-.quick-cmd {
-  display: grid;
-  grid-template-columns: 88px 1fr auto auto;
+.cmd-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
-  align-items: center;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 132, 140, 0.45) transparent;
 }
 
-.qc-name,
-.qc-text {
-  padding: 6px 8px;
+.cmd-list::-webkit-scrollbar {
+  width: 6px;
 }
 
-.qc-send {
-  padding: 6px 12px;
+.cmd-list::-webkit-scrollbar-thumb {
+  background: rgba(128, 132, 140, 0.45);
+  border-radius: 3px;
 }
 
-.qc-del {
-  width: 26px;
-  padding: 2px 0;
-  font-size: 14px;
+.cmd-btn {
+  padding: 7px 8px;
+  font-size: 12px;
+  background: rgba(59, 111, 212, 0.08);
+  color: #3563c2;
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.qc-add {
+.cmd-btn:hover:not(:disabled) {
+  background: rgba(59, 111, 212, 0.16);
+}
+
+.cmd-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px dashed rgba(23, 26, 33, 0.1);
+}
+
+.cmd-edit input {
+  padding: 4px 6px;
+  font-size: 12px;
+}
+
+.cmd-del {
   align-self: flex-start;
-  padding: 5px 10px;
+  padding: 2px 8px;
+  font-size: 12px;
+  color: #c74541;
+  background: transparent;
+  box-shadow: none;
+}
+
+.cmd-add {
+  padding: 6px 0;
+  font-size: 14px;
+  background: rgba(23, 26, 33, 0.05);
+  color: #6b7280;
+  box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
 }
 
 /* 深色主题 */
-.theme-dark .detail-title p,
-.theme-dark .forward-label,
-.theme-dark .auto-send {
+.theme-dark .auto-send,
+.theme-dark .toolbar-item {
   color: #9da0a8;
 }
 
@@ -339,12 +402,40 @@ const connected = computed(() => activeSession.value?.status === 'connected');
   border-color: rgba(255, 255, 255, 0.09);
 }
 
-.theme-dark .send-options {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.12);
+.theme-dark .mini-toggle {
+  background: rgba(255, 255, 255, 0.06);
+  color: #8a9099;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
-.theme-dark .quick-title {
+.theme-dark .mini-toggle.on {
+  background: rgba(87, 157, 245, 0.16);
+  color: #8fbdf7;
+  box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.4);
+}
+
+.theme-dark .cmd-strip {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.theme-dark .cmd-title {
   color: #7c828c;
+}
+
+.theme-dark .cmd-btn {
+  background: rgba(87, 157, 245, 0.12);
+  color: #8fbdf7;
+  box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.25);
+}
+
+.theme-dark .cmd-btn:hover:not(:disabled) {
+  background: rgba(87, 157, 245, 0.22);
+}
+
+.theme-dark .cmd-add {
+  background: rgba(255, 255, 255, 0.06);
+  color: #b3b7be;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 </style>

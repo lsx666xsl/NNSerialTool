@@ -3,6 +3,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
   ConnectionSession,
+  ForwardRule,
   GlobalMessage,
   MessageDirection,
   NetConfig,
@@ -201,9 +202,10 @@ export const exportSessionLog = async (session: ConnectionSession) => {
 };
 
 // ---------- 消息写入 ----------
-// 每次收发或状态变化都写一条总线消息 + 会话内消息。
-// 这里限制最多保留 2000/1000 条，避免高速数据流时前端内存无限增长。
+// RX/TX 数据写总线（仅限已加入总览的会话）+ 会话内消息，各自上限 2000 条。
+// INFO 系统提示不再入消息流，统一走 notify() 中央通知。
 export const appendGlobalMessage = (session: ConnectionSession, direction: MessageDirection, text: string) => {
+  if (!session.inBus) return; // 总览选择性加入：未加入的会话不汇入总线
   globalMessages.value.push({
     id: `${Date.now()}-${Math.random()}`,
     time: nowText(),
@@ -232,14 +234,41 @@ export const appendSessionMessage = (session: ConnectionSession, direction: Mess
     // 静默丢弃会让用户误以为数据都在，裁剪时提示一次并指路日志开关
     if (!session.warnedOverflow) {
       session.warnedOverflow = true;
-      session.messages.push({
-        id: `${Date.now()}-${Math.random()}`,
-        time: nowText(),
-        direction: 'INFO',
-        text: '— 消息已达 2000 条上限，最早的数据已移出界面；开启「保存日志到 log 目录」可留存完整数据 —',
-      });
+      notify('消息已达 2000 条上限，最早的数据已移出界面；开启「保存日志」可留存完整数据');
     }
   }
+};
+
+// ---------- 中央通知（toast） ----------
+// 替代消息流内的 INFO 行与状态栏灰字：界面中央弹出、上浮渐隐自动消失。
+export const toasts = ref<Array<{ id: number; text: string }>>([]);
+let toastSeq = 0;
+
+export const notify = (text: string) => {
+  const id = ++toastSeq;
+  toasts.value.push({ id, text });
+  // 最多同时 4 条，超出丢最旧的
+  if (toasts.value.length > 4) toasts.value.shift();
+  setTimeout(() => {
+    const index = toasts.value.findIndex((t) => t.id === id);
+    if (index >= 0) toasts.value.splice(index, 1);
+  }, 2600);
+};
+
+// ---------- 转发规则 ----------
+// 独立转发界面维护：来源会话收到的数据原样发往目标会话（仅限连接列表中的会话）。
+export const forwardRules = ref<ForwardRule[]>([]);
+
+export const addForwardRule = (fromId: string, toId: string) => {
+  if (!fromId || !toId || fromId === toId) return;
+  const exists = forwardRules.value.some((r) => r.fromId === fromId && r.toId === toId);
+  if (exists) return;
+  forwardRules.value.push({ id: `fr-${Date.now()}-${Math.random()}`, fromId, toId });
+};
+
+export const removeForwardRule = (id: string) => {
+  const index = forwardRules.value.findIndex((r) => r.id === id);
+  if (index >= 0) forwardRules.value.splice(index, 1);
 };
 
 // ---------- 选项刷新 ----------
@@ -291,18 +320,22 @@ export const addCustomBaudRate = (raw: string) => {
 export const createSession = () => {
   if (!canCreateSession.value) return;
 
-  // 串口会话重名检测：同端口会话追加 #2/#3 后缀
   const isSerial = newSessionType.value === 'serial';
-  const samePortCount = isSerial
-    ? sessions.value.filter((item) => item.config.port === newSessionConfig.value.port).length
-    : 0;
-  const serialName =
-    samePortCount === 0 ? newSessionConfig.value.port : `${newSessionConfig.value.port} #${samePortCount + 1}`;
+  // 命名：仅在列表里已存在"同名"会话时才追加 #2/#3 递增后缀；
+  // 删除旧会话后名字会被回收复用（按名字查重，而非按端口计数）
+  const baseName = isSerial
+    ? newSessionConfig.value.port
+    : netSessionName(newSessionType.value, newNetConfig.value);
+  let name = baseName;
+  let suffix = 2;
+  while (sessions.value.some((item) => item.name === name)) {
+    name = `${baseName} #${suffix++}`;
+  }
 
   const session: ConnectionSession = isSerial
     ? {
         id: `serial-${newSessionConfig.value.port}-${Date.now()}`,
-        name: serialName,
+        name,
         type: 'serial',
         status: 'closed',
         config: { ...newSessionConfig.value },
@@ -318,7 +351,7 @@ export const createSession = () => {
       }
     : {
         id: `net-${newSessionType.value}-${Date.now()}`,
-        name: netSessionName(newSessionType.value, newNetConfig.value),
+        name,
         type: newSessionType.value,
         status: 'closed',
         config: { ...newSessionConfig.value },
@@ -350,8 +383,7 @@ export const createSession = () => {
 export const removeSession = (session: ConnectionSession) => {
   if (session.status === 'connected') {
     session.statusMsg = '请先关闭连接，再删除会话';
-    appendGlobalMessage(session, 'INFO', session.statusMsg);
-    appendSessionMessage(session, 'INFO', session.statusMsg);
+    notify(session.statusMsg);
     return;
   }
 
@@ -383,12 +415,10 @@ const openSerial = async (session: ConnectionSession) => {
     });
     session.status = 'connected';
     session.statusMsg = result;
-    appendGlobalMessage(session, 'INFO', result);
-    appendSessionMessage(session, 'INFO', result);
+    notify(result);
   } catch (e) {
     session.statusMsg = `打开失败: ${e}`;
-    appendGlobalMessage(session, 'INFO', session.statusMsg);
-    appendSessionMessage(session, 'INFO', session.statusMsg);
+    notify(session.statusMsg);
   }
 };
 
@@ -405,12 +435,10 @@ const openNet = async (session: ConnectionSession) => {
     });
     session.status = 'connected';
     session.statusMsg = result;
-    appendGlobalMessage(session, 'INFO', result);
-    appendSessionMessage(session, 'INFO', result);
+    notify(result);
   } catch (e) {
     session.statusMsg = `打开失败: ${e}`;
-    appendGlobalMessage(session, 'INFO', session.statusMsg);
-    appendSessionMessage(session, 'INFO', session.statusMsg);
+    notify(session.statusMsg);
   }
 };
 
@@ -427,12 +455,10 @@ const closeSerial = async (session: ConnectionSession) => {
     if (loopSessionId === session.id) {
       sendSettings.value.loopSend = false;
     }
-    appendGlobalMessage(session, 'INFO', result);
-    appendSessionMessage(session, 'INFO', result);
+    notify(result);
   } catch (e) {
     session.statusMsg = `关闭失败: ${e}`;
-    appendGlobalMessage(session, 'INFO', session.statusMsg);
-    appendSessionMessage(session, 'INFO', session.statusMsg);
+    notify(session.statusMsg);
   }
 };
 
@@ -445,12 +471,10 @@ const closeNet = async (session: ConnectionSession) => {
     if (loopSessionId === session.id) {
       sendSettings.value.loopSend = false;
     }
-    appendGlobalMessage(session, 'INFO', result);
-    appendSessionMessage(session, 'INFO', result);
+    notify(result);
   } catch (e) {
     session.statusMsg = `关闭失败: ${e}`;
-    appendGlobalMessage(session, 'INFO', session.statusMsg);
-    appendSessionMessage(session, 'INFO', session.statusMsg);
+    notify(session.statusMsg);
   }
 };
 
@@ -471,8 +495,7 @@ export const sendData = async (session: ConnectionSession, textOverride?: string
 
   if (session.status !== 'connected') {
     session.statusMsg = '请先打开连接再发送数据';
-    appendGlobalMessage(session, 'INFO', session.statusMsg);
-    appendSessionMessage(session, 'INFO', session.statusMsg);
+    notify(session.statusMsg);
     return;
   }
 
@@ -498,8 +521,7 @@ export const sendData = async (session: ConnectionSession, textOverride?: string
     }
   } catch (e) {
     session.statusMsg = `发送失败: ${e}`;
-    appendGlobalMessage(session, 'INFO', session.statusMsg);
-    appendSessionMessage(session, 'INFO', session.statusMsg);
+    notify(session.statusMsg);
   }
 };
 
@@ -509,14 +531,15 @@ export const clearSessionReceive = (session: ConnectionSession) => {
 };
 
 // ---------- 消息转发 ----------
-// 把当前会话收到的数据原样发往目标会话（文本透传，跨串口/网络均可）。
-// 只在收到数据（RX）时触发，转发本身不会再次引发转发，天然无环路。
+// 按转发界面配置的规则执行：来源会话收到的数据原样发往目标会话（文本透传，跨串口/网络均可）。
+// 只在收到数据（RX）时触发；目标会话必须已连接。转发本身不会再次引发转发，天然无环路。
 export const forwardIfConfigured = (session: ConnectionSession, text: string) => {
-  const targetId = session.forwardTo;
-  if (!targetId) return;
-  const target = sessions.value.find((item) => item.id === targetId);
-  if (target && target.id !== session.id && target.status === 'connected') {
-    void sendData(target, text);
+  for (const rule of forwardRules.value) {
+    if (rule.fromId !== session.id) continue;
+    const target = sessions.value.find((item) => item.id === rule.toId);
+    if (target && target.id !== session.id && target.status === 'connected') {
+      void sendData(target, text);
+    }
   }
 };
 
@@ -716,8 +739,7 @@ export const initApp = async () => {
     if (loopSessionId === session.id) {
       sendSettings.value.loopSend = false;
     }
-    appendGlobalMessage(session, 'INFO', session.statusMsg);
-    appendSessionMessage(session, 'INFO', session.statusMsg);
+    notify(session.statusMsg);
     // 断开后主动清理 Rust 侧状态表，否则死句柄残留会导致同端口无法重新打开
     invoke('serial_close', { port: session.config.port }).catch(() => {});
   });
@@ -745,8 +767,7 @@ export const initApp = async () => {
     }
     const reason = decodeBytes(event.payload.data);
     session.statusMsg = `自动发送已停止：${reason}`;
-    appendGlobalMessage(session, 'INFO', session.statusMsg);
-    appendSessionMessage(session, 'INFO', session.statusMsg);
+    notify(session.statusMsg);
   });
 
   // net-read_data 是网络读线程 emit 出来的事件。
@@ -771,8 +792,7 @@ export const initApp = async () => {
     if (loopSessionId === session.id) {
       sendSettings.value.loopSend = false;
     }
-    appendGlobalMessage(session, 'INFO', session.statusMsg);
-    appendSessionMessage(session, 'INFO', session.statusMsg);
+    notify(session.statusMsg);
     // 断开后主动清理 Rust 侧状态表，否则死句柄残留会导致同 key 无法重新打开
     invoke('net_close', { key: session.id }).catch(() => {});
   });

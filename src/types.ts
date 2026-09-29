@@ -8,10 +8,11 @@ export type SerialPortInfo = {
 // TCP/UDP 已在本阶段接入，与串口会话共用同一套会话架构。
 export type ConnectionType = 'serial' | 'tcp_client' | 'tcp_server' | 'udp';
 export type ConnectionStatus = 'closed' | 'connected';
-export type ViewMode = 'detail' | 'split' | 'global';
+export type ViewMode = 'detail' | 'split' | 'global' | 'forward';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type AppliedTheme = 'light' | 'dark';
-export type MessageDirection = 'RX' | 'TX' | 'INFO';
+// RX/TX 为数据方向；系统提示类信息不再作为消息方向存在（走中央 toast 通知）
+export type MessageDirection = 'RX' | 'TX';
 
 // 串口连接参数单独抽出来，方便以后做“场景保存”时直接序列化成配置文件。
 export type SerialConfig = {
@@ -55,8 +56,8 @@ export type ConnectionSession = {
   txBytes: number;
   rxBytes: number;
   statusMsg: string;
-  // 消息转发目标会话 id：本会话收到的数据会原样发往目标会话（空表示不转发）
-  forwardTo?: string;
+  // 是否已加入总览：只有加入的会话，收发记录才会汇入总线时间线（选择性加入）
+  inBus?: boolean;
   // 是否已提示过“消息达上限被裁剪”，避免重复刷屏
   warnedOverflow?: boolean;
   // 会话级显示开关：时间戳按会话控制；RX/TX 为独立的方向过滤开关（只看收/只看发/都看）
@@ -88,4 +89,11 @@ export type SendSettings = {
 export type QuickCommand = {
   name: string;
   text: string;
+};
+
+// 转发规则：来源会话收到的数据原样发往目标会话（仅限连接列表中已有的会话）
+export type ForwardRule = {
+  id: string;
+  fromId: string;
+  toId: string;
 };

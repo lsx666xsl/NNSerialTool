@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted, ref, watchEffect } from 'vue';
 import { appliedTheme, disposeApp, initApp, viewMode } from './stores/appStore';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -17,20 +17,36 @@ const winToggleMaximize = () => void appWindow?.toggleMaximize().catch(() => {})
 const winClose = () => void appWindow?.close().catch(() => {});
 import BusView from './components/BusView.vue';
 import DetailView from './components/DetailView.vue';
+import ForwardView from './components/ForwardView.vue';
 import SessionForm from './components/SessionForm.vue';
 import SessionList from './components/SessionList.vue';
 import SettingsMenu from './components/SettingsMenu.vue';
+import ToastHost from './components/ToastHost.vue';
 import UpdateButton from './components/UpdateButton.vue';
 import SplitView from './components/SplitView.vue';
 import ViewSwitch from './components/ViewSwitch.vue';
 
+// ---------- 整体 UI 缩放 ----------
+// 界面随窗口宽度整体缩放（zoom 挂在根节点，Teleport 浮层同步缩放）：
+// 以 1280px 为基准 1.0，限制在 0.85~1.25 之间——过小会破坏可读性与布局美感。
+const uiScale = ref(1);
+const updateUiScale = () => {
+  uiScale.value = Math.min(1.25, Math.max(0.85, window.innerWidth / 1280));
+};
+watchEffect(() => {
+  document.documentElement.style.zoom = String(uiScale.value);
+});
+
 // App.vue 只负责布局骨架与生命周期装配；
 // 状态与动作集中在 stores/appStore.ts，界面拆分在 components/ 下。
 onMounted(() => {
+  window.addEventListener('resize', updateUiScale);
+  updateUiScale();
   void initApp();
 });
 
 onUnmounted(() => {
+  window.removeEventListener('resize', updateUiScale);
   disposeApp();
 });
 </script>
@@ -78,8 +94,11 @@ onUnmounted(() => {
 
       <DetailView v-if="viewMode === 'detail'" />
       <SplitView v-else-if="viewMode === 'split'" />
+      <ForwardView v-else-if="viewMode === 'forward'" />
       <BusView v-else />
     </section>
     </div>
+    <!-- 中央通知（INFO 提示上浮消失） -->
+    <ToastHost />
   </main>
 </template>

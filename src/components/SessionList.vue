@@ -8,14 +8,15 @@ import {
   toggleConnection,
   toggleSplitSession,
 } from '../stores/appStore';
-import { sessionSubLabel } from '../utils/session';
+import { sessionPortLabel, sessionSubLabel } from '../utils/session';
 
 // 连接列表：所有会话的卡片。
-// 标题行 = 状态点（左）+ 名称 + 删除 X（右上角）；开关行 = 连接开关 / 分屏 / 显示开关 / 计数。
+// 标题行 = 状态点（左）+ 名称 + 端口参数 + 删除 X；字节行 = TX/RX 统计；
+// 开关行 = 分屏 / 总览 / Timestamp / RX / TX / 计数，全部为主题小按钮。
 </script>
 
 <template>
-  <section class="panel">
+  <section class="panel session-list">
     <div class="section-title">
       <h2>连接列表</h2>
       <span>{{ connectedCount }}/{{ sessions.length }} 已连接</span>
@@ -23,6 +24,8 @@ import { sessionSubLabel } from '../utils/session';
 
     <div v-if="sessions.length === 0" class="empty-box">还没有连接会话，请先添加一个。</div>
 
+    <!-- 内部滚动：会话多时列表区域独立滚动，滚动条随内容溢出自动出现 -->
+    <div class="session-scroll">
     <div
       v-for="session in sessions"
       :key="session.id"
@@ -30,7 +33,8 @@ import { sessionSubLabel } from '../utils/session';
       :class="{ active: session.id === activeSessionId }"
       @click="activeSessionId = session.id"
     >
-      <!-- 标题行：状态点即连接开关（绿=已连接点击关闭，红=已关闭点击开启），删除 X 固定右上角 -->
+      <!-- 标题行：状态点即连接开关（绿=已连接点击关闭，红=已关闭点击开启）；
+           右侧为紧凑参数（波特率/端口）与删除 X -->
       <div class="session-main">
         <button
           class="status-dot"
@@ -39,6 +43,7 @@ import { sessionSubLabel } from '../utils/session';
           @click.stop="toggleConnection(session)"
         ></button>
         <strong class="session-name">{{ session.name }}</strong>
+        <span class="name-extra">{{ sessionPortLabel(session) }}</span>
         <button class="x-btn" title="删除会话" @click.stop="removeSession(session)">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
             <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -55,16 +60,25 @@ import { sessionSubLabel } from '../utils/session';
       </div>
 
       <div class="session-actions">
-        <label class="check-label" @click.stop>
-          <input
-            type="checkbox"
-            :checked="selectedSessionIds.includes(session.id)"
-            @change="toggleSplitSession(session.id)"
-          />
-          分屏
-        </label>
-        <!-- 会话级显示开关：Timestamp 时间戳；RX/TX 独立方向过滤（只看收/只看发） -->
+        <!-- 会话级开关：分屏（勾选后进入分屏视图）/ 总览（收发汇入总线时间线，选择性加入）/
+             Timestamp 时间戳 / RX、TX 方向过滤 -->
         <span class="toggles">
+          <button
+            class="mini-toggle"
+            :class="{ on: selectedSessionIds.includes(session.id) }"
+            title="加入分屏显示"
+            @click.stop="toggleSplitSession(session.id)"
+          >
+            分屏
+          </button>
+          <button
+            class="mini-toggle"
+            :class="{ on: session.inBus ?? false }"
+            title="加入总览：本会话收发汇入总线时间线"
+            @click.stop="session.inBus = !(session.inBus ?? false)"
+          >
+            总览
+          </button>
           <button
             class="mini-toggle"
             :class="{ on: session.showTimestamp ?? true }"
@@ -93,10 +107,42 @@ import { sessionSubLabel } from '../utils/session';
         <span class="msg-count">{{ session.messageCount }} 条</span>
       </div>
     </div>
+    </div>
   </section>
 </template>
 
 <style scoped>
+/* 内部滚动容器：面板占满侧栏剩余高度，会话卡片在内部滚动 */
+.session-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.session-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* 内容不溢出时不出现；溢出后细滚动条常驻可见 */
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 132, 140, 0.45) transparent;
+}
+
+.session-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.session-scroll::-webkit-scrollbar-thumb {
+  background: rgba(128, 132, 140, 0.45);
+  border-radius: 4px;
+}
+
+.session-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
 .session-card {
   border: 1px solid rgba(23, 26, 33, 0.1);
   border-radius: 8px;
@@ -160,6 +206,14 @@ import { sessionSubLabel } from '../utils/session';
   color: #6b7280;
 }
 
+/* 标题行紧凑参数（波特率/端口）：位于 X 按钮左侧 */
+.name-extra {
+  flex-shrink: 0;
+  font-size: 11px;
+  color: #8a9099;
+  font-variant-numeric: tabular-nums;
+}
+
 /* 收发字节统计行：与副标题同缩进，等宽数字避免跳动 */
 .byte-line {
   display: flex;
@@ -218,11 +272,6 @@ import { sessionSubLabel } from '../utils/session';
   white-space: nowrap;
 }
 
-.check-label {
-  font-size: 13px;
-  color: #6b7280;
-}
-
 /* 会话级显示开关：紧凑小按钮，激活态高亮 */
 .toggles {
   display: inline-flex;
@@ -262,9 +311,12 @@ import { sessionSubLabel } from '../utils/session';
 }
 
 .theme-dark .session-sub,
-.theme-dark .session-actions,
-.theme-dark .check-label {
+.theme-dark .session-actions {
   color: #9da0a8;
+}
+
+.theme-dark .name-extra {
+  color: #7c828c;
 }
 
 .theme-dark .byte-line .tx {

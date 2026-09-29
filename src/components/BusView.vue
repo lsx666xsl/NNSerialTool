@@ -32,7 +32,6 @@ import {
             { value: 'all', label: '全部' },
             { value: 'RX', label: 'RX' },
             { value: 'TX', label: 'TX' },
-            { value: 'INFO', label: 'INFO' },
           ]"
         />
       </div>
@@ -154,10 +153,6 @@ import {
   color: #2b6cb0;
 }
 
-.message-line.info .direction {
-  color: #b7791f;
-}
-
 .time,
 .source {
   color: #7c828c;
@@ -188,9 +183,5 @@ import {
 
 .theme-dark .message-line.tx .direction {
   color: #6ca7e8;
-}
-
-.theme-dark .message-line.info .direction {
-  color: #d9a55a;
 }
 </style>

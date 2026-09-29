@@ -37,8 +37,11 @@ const typeOptions: Array<{ value: ConnectionType; label: string }> = [
 // 地址下拉的展开状态；点击浮层外部自动收起
 const addrOpen = ref(false);
 const addrWrap = ref<HTMLElement | null>(null);
+const addrPopEl = ref<HTMLElement | null>(null);
 // 浮层 Teleport 到 body 后用 fixed 定位（不占布局，展开不会顶动侧栏）
 const addrPopStyle = ref<{ top: string; left: string; width: string }>({ top: '0px', left: '0px', width: '0px' });
+// 展开时记录触发框位置：只收起"锚点真的移动了"的滚动（消息流自动滚动不收起）
+let addrOpenRect: { left: number; top: number } | null = null;
 
 const toggleAddr = () => {
   if (addrOpen.value) {
@@ -49,6 +52,7 @@ const toggleAddr = () => {
   if (!input) return;
   const rect = input.getBoundingClientRect();
   addrPopStyle.value = { top: `${rect.bottom}px`, left: `${rect.left}px`, width: `${rect.width}px` };
+  addrOpenRect = { left: rect.left, top: rect.top };
   addrOpen.value = true;
 };
 
@@ -58,7 +62,14 @@ const onDocClick = (e: MouseEvent) => {
   addrOpen.value = false;
 };
 
-const onWinScrollOrResize = () => {
+const onWinScrollOrResize = (e: Event) => {
+  if (!addrOpen.value) return;
+  if (e.target instanceof Node && addrPopEl.value?.contains(e.target)) return;
+  const box = addrWrap.value;
+  if (box) {
+    const rect = box.getBoundingClientRect();
+    if (addrOpenRect && Math.abs(rect.left - addrOpenRect.left) < 1 && Math.abs(rect.top - addrOpenRect.top) < 1) return;
+  }
   addrOpen.value = false;
 };
 
@@ -183,7 +194,7 @@ const onCustomBaudBlur = () => {
 
   <!-- 浮层 Teleport 到 body：fixed 定位跟随输入框，不占侧栏布局、不引起滚动 -->
   <Teleport to="body">
-    <div v-if="addrOpen" class="addr-pop" :class="{ 'theme-dark': appliedTheme === 'dark' }" :style="addrPopStyle">
+    <div v-if="addrOpen" ref="addrPopEl" class="addr-pop" :class="{ 'theme-dark': appliedTheme === 'dark' }" :style="addrPopStyle">
       <div
         v-for="ip in addressSuggestions"
         :key="ip"

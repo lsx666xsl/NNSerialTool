@@ -4,7 +4,7 @@ import type { SessionMessage } from '../types';
 import { autoScroll, fontFamilyStack, fontSize } from '../stores/appStore';
 
 // 流式消息区：详情视图与分屏视图共用。
-// 时间戳按会话开关（与 RX/TX 方向标签相互独立）；RX/TX 为独立的方向过滤开关（INFO 恒显示）。
+// 时间戳按会话开关（与 RX/TX 方向标签相互独立）；RX/TX 为独立的方向过滤开关。
 // 自动滚动（默认关闭，工具栏手动勾选）：勾选后只要有新消息就滚到最底下；
 // “↓ 最新”按钮仅在「内容溢出出现滚动条 且 不在底部」时动态出现。
 // 支持 Ctrl+滚轮实时调整字号（11-22）。
@@ -15,31 +15,32 @@ const props = defineProps<{
   filterTx: boolean;
 }>();
 
-// 方向过滤只影响显示：计数、转发、日志仍处理全部数据，INFO 系统信息恒显示。
+// 方向过滤只影响显示：计数、转发、日志仍处理全部数据。
+// INFO 系统信息不再进消息流（改为中央 toast 通知，见 store.notify）。
 // 注意：不做渲染切片——切片裁剪会让 scrollHeight 突变、干扰自动滚动判定（历史 bug）；
-// 上限 2000 条由 store 裁剪，keyed diff 追加成本 O(1)。
+// 上限 2000 条由 store 裁剪，keyed diff + v-memo 让逐条追加的 diff 成本 O(1)。
 const visibleMessages = computed(() =>
   props.messages.filter(
     (m) =>
-      m.direction === 'INFO' ||
       (m.direction === 'RX' && props.filterRx) ||
       (m.direction === 'TX' && props.filterTx)
   )
 );
 
 const flowEl = ref<HTMLElement | null>(null);
-const hasOverflow = ref(false);
-const atBottom = ref(true);
+// "↓ 最新"按钮带滞回：距底 >60px 出现、<4px 才消失，
+// 避免临界距离反复横跳导致的按钮闪烁（接收抖动的来源之一）
+const showJump = ref(false);
 
 let scrollRaf = 0;
 
-// 刷新滚动状态：是否出现滚动条（内容溢出）、是否在底部
+// 刷新滚动状态（滞回判定）
 const updateScrollState = () => {
   scrollRaf = 0;
   const el = flowEl.value;
   if (!el) return;
-  hasOverflow.value = el.scrollHeight > el.clientHeight + 2;
-  atBottom.value = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  const dist = el.scrollHeight - el.scrollTop - el.clientHeight;
+  showJump.value = el.scrollHeight > el.clientHeight + 2 && (dist > 60 || (showJump.value && dist > 4));
 };
 
 const onScroll = () => {
@@ -97,7 +98,15 @@ onUnmounted(() => resizeObserver?.disconnect());
     >
       <div v-if="visibleMessages.length === 0" class="flow-empty">等待接收数据</div>
       <!-- 两行式布局：第一行元信息（时间戳/方向），第二行起为数据正文；时间戳与 RX/TX 独立 -->
-      <div v-for="message in visibleMessages" :key="message.id" class="flow-line" :class="message.direction.toLowerCase()">
+      <!-- v-memo：消息内容创建后不变，仅时间戳开关会影响渲染 → 未变化的行整行跳过 diff，
+           高频接收时每帧 diff 成本从 O(全量 2000 行) 降为 O(1)，消除接收卡顿与点击迟钝 -->
+      <div
+        v-for="message in visibleMessages"
+        :key="message.id"
+        v-memo="[showTimestamp]"
+        class="flow-line"
+        :class="message.direction.toLowerCase()"
+      >
         <div class="flow-meta">
           <span v-if="showTimestamp && message.time" class="flow-time">{{ message.time }}</span>
           <span class="flow-dir">{{ message.direction }}</span>
@@ -106,7 +115,7 @@ onUnmounted(() => resizeObserver?.disconnect());
       </div>
     </div>
     <button
-      v-if="hasOverflow && !atBottom"
+      v-if="showJump"
       class="jump-bottom"
       title="滚动到最新数据"
       @click="scrollToBottom"
@@ -151,6 +160,8 @@ onUnmounted(() => resizeObserver?.disconnect());
   font-size: 12px;
   scrollbar-width: thin;
   scrollbar-color: rgba(128, 132, 140, 0.45) transparent;
+  /* 滚动条槽位常驻：首次溢出/消失时不再引发整行重排（接收抖动来源之二） */
+  scrollbar-gutter: stable;
 }
 
 /* 有消息时底部锚定：内容不足一屏时贴底显示（终端式），内容溢出时该边距自动归零、正常滚动 */
@@ -218,21 +229,6 @@ onUnmounted(() => resizeObserver?.disconnect());
   color: #2b6cb0;
 }
 
-.flow-line.info .flow-dir {
-  color: #b7791f;
-}
-
-.flow-line.info .flow-text {
-  color: #6b7280;
-}
-
-/* INFO 系统信息保持单行紧凑，不换行 */
-.flow-line.info {
-  flex-direction: row;
-  gap: 8px;
-  align-items: baseline;
-}
-
 /* 深色主题：深底浅字，方向色提亮 */
 .theme-dark .message-flow {
   background: #1a1b1e;
@@ -260,13 +256,6 @@ onUnmounted(() => resizeObserver?.disconnect());
   color: #6ca7e8;
 }
 
-.theme-dark .flow-line.info .flow-dir {
-  color: #d9a55a;
-}
-
-.theme-dark .flow-line.info .flow-text {
-  color: #9aa0aa;
-}
 .theme-dark .flow-empty {
   color: #6f737a;
 }

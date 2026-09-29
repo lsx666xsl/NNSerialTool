@@ -62,6 +62,10 @@ import { sendData, splitSessions } from '../stores/appStore';
 .split-grid.count-3,
 .split-grid.count-4 {
   grid-template-columns: repeat(2, minmax(280px, 1fr));
+  /* 行高按可视区均分（下限 280px）：卡片高度固定，各自的消息区独立滚动，
+     会话多到超出可视区时整个网格才滚动（修复"窗口太多往下滚不动"——
+     旧实现卡片高度随内容无限生长，滚轮永远被卡片内部的消息区吃掉） */
+  grid-auto-rows: minmax(280px, 1fr);
 }
 
 /* 窄窗口（≤1100px，含默认 800x600）：两列各剩 300px 出头没法看，
@@ -71,6 +75,7 @@ import { sendData, splitSessions } from '../stores/appStore';
   .split-grid.count-3,
   .split-grid.count-4 {
     grid-template-columns: minmax(0, 1fr);
+    grid-auto-rows: minmax(280px, 1fr);
   }
 }
 

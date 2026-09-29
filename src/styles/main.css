@@ -112,13 +112,8 @@ body,
   display: flex;
   flex-direction: column;
   gap: 14px;
-  overflow: auto;
-  /* 侧栏滚动条隐藏，保持界面干净 */
-  scrollbar-width: none;
-}
-
-.sidebar::-webkit-scrollbar {
-  display: none;
+  /* 列表面板自身滚动（见 SessionList 的 .session-list），侧栏整体不再滚动 */
+  overflow: hidden;
 }
 
 .main-area {
