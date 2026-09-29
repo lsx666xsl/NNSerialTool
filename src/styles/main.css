@@ -26,16 +26,16 @@ body,
   transition: background 0.24s ease, color 0.24s ease;
 }
 
-/* ===== 自定义标题栏（无边框窗口，ZCode 风格）===== */
+/* ===== 自定义标题栏（无边框窗口，反色设计）===== */
 .titlebar {
   display: flex;
   align-items: center;
   height: 40px;
   flex-shrink: 0;
   padding-left: 12px;
-  /* 浅色主题：与 workspace 渐变顶部同色，无缝衔接 */
-  background: #f7f7f9;
-  color: #23262b;
+  /* 反色：标题栏恒为深色底，与浅色主区形成对比；深色主题下与主区同色衔接 */
+  background: #1e1f22;
+  color: #b9bec7;
   user-select: none;
 }
 
@@ -91,12 +91,6 @@ body,
 .tb-btn.tb-close:hover:not(:disabled) {
   background: #e81123;
   color: #ffffff;
-}
-
-.theme-dark .titlebar {
-  /* 深色：与 workspace 渐变顶部同色，无缝衔接 */
-  background: #1e1f22;
-  color: #b9bec7;
 }
 
 /* ===== 应用主体（标题栏以下）===== */

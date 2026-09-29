@@ -59,7 +59,7 @@ onUnmounted(() => {
         <svg class="tb-logo" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
           <polyline points="2 12 6 12 9 5 13 19 16 12 22 12"></polyline>
         </svg>
-        <span class="tb-title">serialtool</span>
+        <span class="tb-title">NNSerialTool</span>
       </div>
       <div class="tb-drag" data-tauri-drag-region></div>
       <div class="tb-controls">
