@@ -39,7 +39,11 @@ const addrOpen = ref(false);
 const addrWrap = ref<HTMLElement | null>(null);
 const addrPopEl = ref<HTMLElement | null>(null);
 // 浮层 Teleport 到 body 后用 fixed 定位（不占布局，展开不会顶动侧栏）
-const addrPopStyle = ref<{ top: string; left: string; width: string }>({ top: '0px', left: '0px', width: '0px' });
+const addrPopStyle = ref<{ left: string; width: string; maxHeight: string; top?: string; bottom?: string }>({
+  left: '0px',
+  width: '0px',
+  maxHeight: '180px',
+});
 // 展开时记录触发框位置：只收起"锚点真的移动了"的滚动（消息流自动滚动不收起）
 let addrOpenRect: { left: number; top: number } | null = null;
 
@@ -51,13 +55,23 @@ const toggleAddr = () => {
   const input = addrWrap.value?.querySelector('input');
   if (!input) return;
   const rect = input.getBoundingClientRect();
-  // 根节点 zoom 缩放下 fixed 定位坐标换算（同 SelfSelect）
+  // 根节点 zoom 缩放下 fixed 定位坐标换算（同 SelfSelect）；视口边界钳制高度
   const zoom = Number(document.documentElement.style.zoom) || 1;
-  addrPopStyle.value = {
-    top: `${rect.bottom / zoom}px`,
+  const availBelow = (window.innerHeight - rect.bottom - 10) / zoom;
+  const availAbove = (rect.top - 10) / zoom;
+  const style: { left: string; width: string; maxHeight: string; top?: string; bottom?: string } = {
     left: `${rect.left / zoom}px`,
     width: `${rect.width / zoom}px`,
+    maxHeight: '180px',
   };
+  if (availBelow >= 96 || availBelow >= availAbove) {
+    style.top = `${rect.bottom / zoom}px`;
+    style.maxHeight = `${Math.max(96, Math.min(180, availBelow))}px`;
+  } else {
+    style.bottom = `${(window.innerHeight - rect.top) / zoom}px`;
+    style.maxHeight = `${Math.max(96, Math.min(180, availAbove))}px`;
+  }
+  addrPopStyle.value = style;
   addrOpenRect = { left: rect.left, top: rect.top };
   addrOpen.value = true;
 };

@@ -19,14 +19,33 @@ import {
   sendSettings,
 } from '../stores/appStore';
 
-// 单屏大视图：接收流 + 工具带 + 发送栏 + 右侧拓展命令纵栏（SSCOM 风格）。
-// 旧"选项"折叠面板已移除：换行/发后清空并入工具带，快捷命令常驻右栏。
+// 单屏大视图：接收流 + 工具带 + 发送区（高度可拖拽）+ 右侧拓展命令纵栏。
+// 旧"选项"折叠面板已移除：自动换行/自动发送并入工具带，快捷命令常驻右栏。
 const connected = computed(() => activeSession.value?.status === 'connected');
 
 // 拓展命令编辑模式：切换后按钮变成可编辑的名称/内容输入行
 const cmdEditing = ref(false);
-// 右侧拓展命令栏显示开关
-const cmdStripVisible = ref(true);
+// 右侧拓展命令栏显示开关（默认关闭）
+const cmdStripVisible = ref(false);
+
+// 发送框高度（可拖动上边界调整；拖高发送框时接收框自动收缩，二者互斥共享空间）
+const sendHeight = ref(64);
+
+const onResizeHandleDown = (e: PointerEvent) => {
+  e.preventDefault();
+  const startY = e.clientY;
+  const startHeight = sendHeight.value;
+  const onMove = (ev: PointerEvent) => {
+    // 向上拖 = 增高；限制在 46~340px
+    sendHeight.value = Math.min(340, Math.max(46, startHeight - (ev.clientY - startY)));
+  };
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+  };
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+};
 
 const newlineOptions = [
   { value: 'none', label: '无' },
@@ -91,28 +110,10 @@ const newlineOptions = [
               自动换行
               <SelfSelect v-model="sendSettings.newline" :full="false" :options="newlineOptions" />
             </label>
-            <button
-              class="tb-toggle toolbar-end"
-              :class="{ on: cmdStripVisible }"
-              title="显示/隐藏右侧拓展命令栏"
-              @click="cmdStripVisible = !cmdStripVisible"
-            >
-              拓展命令
-            </button>
-          </div>
-
-          <!-- 发送栏：输入 + 自动发送 + 发送按钮（右下角框外）；窄窗口放不下时按钮换行 -->
-          <div class="send-row">
-            <textarea
-              v-model="activeSession.sendText"
-              class="send-input"
-              rows="2"
-              placeholder="输入要发送的数据（Ctrl+回车 发送）"
-              @keydown.ctrl.enter.prevent="sendData(activeSession)"
-            ></textarea>
-            <label class="auto-send" title="按设定的间隔自动发送发送框中的内容（作用于开启时的会话）">
+            <!-- 自动发送组：矩形框包成一个整体 -->
+            <label class="auto-send-group" title="按设定的间隔自动发送发送框中的内容（作用于开启时的会话）">
               <input type="checkbox" v-model="sendSettings.loopSend" />
-              自动
+              自动发送
               <NumberInput
                 v-model="sendSettings.loopInterval"
                 :min="10"
@@ -123,7 +124,31 @@ const newlineOptions = [
               />
               ms
             </label>
-            <button class="primary-btn send-btn" :disabled="!connected" @click="sendData(activeSession)">发送</button>
+            <button
+              class="tb-toggle toolbar-end"
+              :class="{ on: cmdStripVisible }"
+              title="显示/隐藏右侧拓展命令栏"
+              @click="cmdStripVisible = !cmdStripVisible"
+            >
+              拓展命令
+            </button>
+          </div>
+
+          <!-- 发送区：上边界可上下拖动拉伸（与接收框互斥共享空间） -->
+          <div class="send-area">
+            <div class="send-resize" title="拖动调整发送框高度" @pointerdown="onResizeHandleDown"><span></span></div>
+            <!-- 发送栏：输入 + 发送按钮 -->
+            <div class="send-row">
+              <textarea
+                v-model="activeSession.sendText"
+                class="send-input"
+                rows="2"
+                :style="{ height: sendHeight + 'px' }"
+                placeholder="输入要发送的数据（Ctrl+回车 发送）"
+                @keydown.ctrl.enter.prevent="sendData(activeSession)"
+              ></textarea>
+              <button class="primary-btn send-btn" :disabled="!connected" @click="sendData(activeSession)">发送</button>
+            </div>
           </div>
         </div>
 
@@ -222,7 +247,7 @@ const newlineOptions = [
   gap: 10px;
 }
 
-/* 工具带：自动滚动/导出/清空/换行/发后清空 */
+/* 工具带：自动滚动/导出/清空/自动换行/自动发送组/拓展命令开关 */
 .panel-toolbar {
   display: flex;
   align-items: center;
@@ -267,29 +292,56 @@ const newlineOptions = [
   display: flex;
   align-items: flex-end;
   gap: 10px;
-  flex-wrap: wrap;
   flex-shrink: 0;
+}
+
+/* 发送区：上边界拖拽手柄 + 发送行；拖高时接收框自动收缩（flex 互斥） */
+.send-area {
+  flex-shrink: 0;
+}
+
+.send-resize {
+  height: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: ns-resize;
+  border-radius: 3px;
+}
+
+.send-resize span {
+  width: 40px;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(23, 26, 33, 0.15);
+  transition: background 0.15s ease;
+}
+
+.send-resize:hover span {
+  background: rgba(59, 111, 212, 0.55);
 }
 
 .send-input {
   flex: 1;
-  /* 允许在窄窗口下收缩，避免发送栏把面板撑出横向滚动 */
+  /* 允许在窄窗口下收缩，避免发送栏把面板撑出横向滚动；高度由拖拽手柄控制 */
   min-width: 0;
   resize: none;
-  min-height: 46px;
-  max-height: 120px;
   font-family: Consolas, 'Courier New', monospace;
   line-height: 1.5;
 }
 
-.auto-send {
+/* 自动发送组：矩形边框包成一个整体，与自动换行同栏 */
+.auto-send-group {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: 8px;
   font-size: 13px;
   color: #3b414b;
   white-space: nowrap;
-  padding-bottom: 8px;
+  padding: 4px 10px;
+  border: 1px solid rgba(23, 26, 33, 0.14);
+  border-radius: 6px;
+  cursor: pointer;
 }
 
 .auto-interval {
@@ -395,9 +447,21 @@ const newlineOptions = [
 }
 
 /* 深色主题 */
-.theme-dark .auto-send,
+.theme-dark .auto-send-group,
 .theme-dark .toolbar-item {
   color: #9da0a8;
+}
+
+.theme-dark .auto-send-group {
+  border-color: rgba(255, 255, 255, 0.14);
+}
+
+.theme-dark .send-resize span {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.theme-dark .send-resize:hover span {
+  background: rgba(87, 157, 245, 0.6);
 }
 
 .theme-dark .work-panel {

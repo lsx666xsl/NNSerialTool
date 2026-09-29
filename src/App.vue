@@ -2,6 +2,7 @@
 import { onMounted, onUnmounted } from 'vue';
 import { appliedTheme, disposeApp, initApp, viewMode } from './stores/appStore';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import logoUrl from './assets/logo.png';
 
 // 自定义标题栏的窗口控制（无边框窗口）。浏览器调试环境无 Tauri API，静默降级。
 // getCurrentWindow 在非 Tauri 环境会抛错，需捕获避免白屏
@@ -44,9 +45,7 @@ onUnmounted(() => {
     <!-- 自定义标题栏（ZCode 风格）：左 logo+名称，右侧窗口控制；空白区可拖动窗口 -->
     <div class="titlebar">
       <div class="tb-left" data-tauri-drag-region>
-        <svg class="tb-logo" viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round">
-          <polyline points="2 12 6 12 9 5 13 19 16 12 22 12"></polyline>
-        </svg>
+        <img :src="logoUrl" class="tb-logo-img" alt="NNSerialTool" draggable="false" />
         <span class="tb-title">NNSerialTool</span>
       </div>
       <div class="tb-drag" data-tauri-drag-region></div>

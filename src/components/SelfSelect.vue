@@ -22,7 +22,12 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: string | number): void }>
 const open = ref(false);
 const wrapEl = ref<HTMLElement | null>(null);
 const popEl = ref<HTMLElement | null>(null);
-const popStyle = ref<{ top: string; left: string; width: string }>({ top: '0px', left: '0px', width: '0px' });
+// 定位信息：向下展开用 top，向下放不下自动改为向上展开（bottom），并钳制最大高度出滚动条
+const popStyle = ref<{ left: string; width: string; maxHeight: string; top?: string; bottom?: string }>({
+  left: '0px',
+  width: '0px',
+  maxHeight: '240px',
+});
 // 展开时记录触发框位置：用于区分"会移动锚点的滚动"与"无关滚动"（如消息流自动滚动）
 let openRect: { left: number; top: number } | null = null;
 
@@ -43,11 +48,22 @@ const toggle = () => {
   // 根节点带 zoom 整体缩放时，rect 是缩放后的视觉像素，而浮层的 fixed 定位
   // 解释的是布局像素——需除以 zoom 换算，否则浮层会偏向左上（缩放越小偏得越多）
   const zoom = Number(document.documentElement.style.zoom) || 1;
-  popStyle.value = {
-    top: `${rect.bottom / zoom}px`,
+  // 视口边界钳制：下方放不下时收缩浮层高度出滚动条；再不够则整体向上展开
+  const availBelow = (window.innerHeight - rect.bottom - 10) / zoom;
+  const availAbove = (rect.top - 10) / zoom;
+  const style: { left: string; width: string; maxHeight: string; top?: string; bottom?: string } = {
     left: `${rect.left / zoom}px`,
     width: `${rect.width / zoom}px`,
+    maxHeight: '240px',
   };
+  if (availBelow >= 96 || availBelow >= availAbove) {
+    style.top = `${rect.bottom / zoom}px`;
+    style.maxHeight = `${Math.max(96, Math.min(240, availBelow))}px`;
+  } else {
+    style.bottom = `${(window.innerHeight - rect.top) / zoom}px`;
+    style.maxHeight = `${Math.max(96, Math.min(240, availAbove))}px`;
+  }
+  popStyle.value = style;
   openRect = { left: rect.left, top: rect.top };
   open.value = true;
 };

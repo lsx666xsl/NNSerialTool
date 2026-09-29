@@ -45,14 +45,14 @@ body,
   gap: 8px;
 }
 
-/* 左上角 logo 徽标：蓝色矩形底 + 白色波形 */
-.tb-logo {
+/* 左上角 logo：直接使用应用图标（与桌面/任务栏图标完全一致） */
+.tb-logo-img {
   width: 22px;
   height: 22px;
-  padding: 4px;
-  background: linear-gradient(180deg, #3b6fd4, #3563c2);
   border-radius: 5px;
-  color: #ffffff;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
 }
 
 .tb-title {
