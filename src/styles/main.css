@@ -73,7 +73,7 @@ body,
   align-self: stretch;
 }
 
-/* 窗口控制按钮：扁平融入标题栏；图标用深色保证可读，hover 浮现灰底；关闭 hover 红 */
+/* 窗口控制按钮：扁平融入标题栏；图标深色保证可读，hover 浮现灰底；关闭 hover 红 */
 .tb-btn {
   width: 44px;
   height: 40px;
@@ -83,15 +83,15 @@ body,
   justify-content: center;
   border-radius: 0;
   background: transparent;
-  color: #565d66;
+  color: #23262b;
   box-shadow: none;
   transform: none;
 }
 
 .tb-btn:hover:not(:disabled) {
   transform: none;
-  background: rgba(23, 26, 33, 0.08);
-  color: #23262b;
+  background: rgba(23, 26, 33, 0.12);
+  color: #000000;
 }
 
 .tb-btn.tb-close:hover:not(:disabled) {
