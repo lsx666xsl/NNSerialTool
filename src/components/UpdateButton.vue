@@ -119,7 +119,6 @@ const doUpdate = async () => {
 
 .up-log {
   margin: 0;
-  font-family: Consolas, 'Courier New', monospace;
   font-size: 12px;
   line-height: 1.6;
   color: #23262b;

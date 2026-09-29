@@ -90,7 +90,6 @@ const start = () => {
   border-radius: 6px;
   background: #f8f9fb;
   padding: 8px;
-  font-family: Consolas, 'Courier New', monospace;
   font-size: 12px;
   scrollbar-width: thin;
   scrollbar-color: rgba(128, 132, 140, 0.45) transparent;

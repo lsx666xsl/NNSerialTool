@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted } from 'vue';
-import { appliedTheme, disposeApp, initApp, viewMode } from './stores/appStore';
+import { appliedTheme, disposeApp, fontFamilyStack, initApp, viewMode } from './stores/appStore';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import logoUrl from './assets/logo.png';
 
@@ -41,7 +41,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <main class="workspace" :class="`theme-${appliedTheme}`">
+  <main class="workspace" :class="`theme-${appliedTheme}`" :style="{ fontFamily: fontFamilyStack }">
     <!-- 自定义标题栏（ZCode 风格）：左 logo+名称，右侧窗口控制；空白区可拖动窗口 -->
     <div class="titlebar">
       <div class="tb-left" data-tauri-drag-region>

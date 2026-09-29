@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { SessionMessage } from '../types';
-import { autoScroll, fontFamilyStack, fontSize } from '../stores/appStore';
+import { autoScroll, fontSize } from '../stores/appStore';
 
 // 流式消息区：详情视图与分屏视图共用。
 // 时间戳按会话开关（与 RX/TX 方向标签相互独立）；RX/TX 为独立的方向过滤开关。
@@ -92,7 +92,7 @@ onUnmounted(() => resizeObserver?.disconnect());
       ref="flowEl"
       class="message-flow"
       :class="{ anchored: visibleMessages.length > 0 }"
-      :style="{ fontSize: fontSize + 'px', fontFamily: fontFamilyStack }"
+      :style="{ fontSize: fontSize + 'px' }"
       @scroll="onScroll"
       @wheel="onWheel"
     >
@@ -156,7 +156,6 @@ onUnmounted(() => resizeObserver?.disconnect());
   background: #f8f9fb;
   color: #23262b;
   padding: 8px;
-  font-family: Consolas, 'Courier New', monospace;
   font-size: 12px;
   scrollbar-width: thin;
   scrollbar-color: rgba(128, 132, 140, 0.45) transparent;

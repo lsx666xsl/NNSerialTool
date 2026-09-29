@@ -326,7 +326,6 @@ const newlineOptions = [
   /* 允许在窄窗口下收缩，避免发送栏把面板撑出横向滚动；高度由拖拽手柄控制 */
   min-width: 0;
   resize: none;
-  font-family: Consolas, 'Courier New', monospace;
   line-height: 1.5;
 }
 

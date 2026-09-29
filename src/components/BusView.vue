@@ -101,7 +101,6 @@ import {
   background: #f8f9fb;
   color: #23262b;
   padding: 10px;
-  font-family: Consolas, 'Courier New', monospace;
   font-size: 12px;
   /* 总线同样是数据信息区，滚动条保留并美化 */
   scrollbar-width: thin;
