@@ -1,7 +1,9 @@
 // ============ 模块声明 ============
+mod fonts;
 mod net;
 mod serial;
 
+use fonts::*;
 use net::*;
 use serial::*;
 
@@ -26,6 +28,8 @@ pub fn run() {
             serial_close,
             serial_write,
             serial_log_write,
+            serial_log_dir, // 默认日志导出目录（exe 所在目录下的 log）
+            system_fonts_list, // 枚举 Windows 已安装字体（设置字体下拉）
             serial_auto_send_start,
             serial_auto_send_stop,
             serial_set_baudrate,

@@ -51,6 +51,9 @@ export type ConnectionSession = {
   sendText: string;
   messages: SessionMessage[];
   messageCount: number;
+  // 会话累计收发字节数：连接期间持续累加（清空消息不影响统计，重开连接不清零）
+  txBytes: number;
+  rxBytes: number;
   statusMsg: string;
   // 消息转发目标会话 id：本会话收到的数据会原样发往目标会话（空表示不转发）
   forwardTo?: string;

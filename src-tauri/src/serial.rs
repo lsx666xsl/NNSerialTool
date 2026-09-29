@@ -433,35 +433,59 @@ pub async fn serial_set_stopbits(
 }
 
 /*
-*   描述：追加写入串口日志到项目 log 目录（async：文件 IO 移入线程池）
+*   描述：追加写入日志文件（async：文件 IO 移入线程池）
+*   传参：dir：导出目录（用户在设置里配置；空/缺省 = exe 所在目录下的 log，即安装目录随应用走）
+*         filename：文件名由前端按"端口号/IP_时间"生成，后端再过滤一次非法字符防路径逃逸
+*   返回：实际写入的完整路径（前端状态栏展示用）
 */
 #[tauri::command]
-pub async fn serial_log_write(date: String, text: String) -> Result<(), String> {
+pub async fn serial_log_write(dir: Option<String>, filename: String, text: String) -> Result<String, String> {
     use std::fs::OpenOptions;
 
     tauri::async_runtime::spawn_blocking(move || {
-        // 定位项目根目录：tauri dev 的工作目录是 src-tauri，需要上跳一级才是项目根
-        let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-        let root = if cwd.file_name().map(|n| n == "src-tauri").unwrap_or(false) {
-            cwd.parent().map(|p| p.to_path_buf()).unwrap_or(cwd)
-        } else {
-            cwd
+        // 默认目录与启动时的工作目录无关：始终锚定 exe 所在目录（安装目录），避免 cwd 漂移
+        let log_dir = match dir {
+            Some(d) if !d.trim().is_empty() => std::path::PathBuf::from(d.trim()),
+            _ => std::env::current_exe()
+                .map_err(|e| format!("定位程序目录失败: {}", e))?
+                .parent()
+                .map(|p| p.join("log"))
+                .ok_or_else(|| "定位程序目录失败".to_string())?,
         };
-
-        // log 目录不存在则新建
-        let log_dir = root.join("log");
         std::fs::create_dir_all(&log_dir).map_err(|e| format!("创建日志目录失败: {}", e))?;
 
-        // 按天分文件：log/serial_YYYY-MM-DD.log，追加模式写入
+        // Windows 文件名非法字符兜底替换（正常情况下前端已保证合法）
+        let safe_name: String = filename
+            .chars()
+            .map(|c| if matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') { '_' } else { c })
+            .collect();
+
+        let path = log_dir.join(safe_name);
         let mut file = OpenOptions::new()
             .create(true)
             .append(true)
-            .open(log_dir.join(format!("serial_{}.log", date)))
+            .open(&path)
             .map_err(|e| format!("打开日志文件失败: {}", e))?;
 
         file.write_all(text.as_bytes())
             .map_err(|e| format!("写入日志失败: {}", e))?;
-        Ok(())
+        Ok(path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| format!("任务执行失败: {}", e))?
+}
+
+/*
+*   描述：查询默认日志导出目录（exe 所在目录下的 log），设置界面展示占位提示用
+*/
+#[tauri::command]
+pub async fn serial_log_dir() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let exe = std::env::current_exe().map_err(|e| format!("定位程序目录失败: {}", e))?;
+        Ok(exe
+            .parent()
+            .map(|p| p.join("log").to_string_lossy().to_string())
+            .unwrap_or_default())
     })
     .await
     .map_err(|e| format!("任务执行失败: {}", e))?

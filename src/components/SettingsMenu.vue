@@ -1,11 +1,21 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
 import SelfSelect from './SelfSelect.vue';
-import { fontFamily, fontSize, themeMode } from '../stores/appStore';
+import { defaultLogDir, fontFamily, fontSize, logDir, systemFonts, themeMode } from '../stores/appStore';
 
-// 设置菜单：主题三态 + 字号/字体 + 日志落盘 + 时间戳开关。
+// 设置菜单：主题三态 + 字号/字体 + 日志导出路径 + 时间戳开关。
 // 点击菜单外部自动收起（菜单内部点击通过 @click.stop 阻止冒泡）。
 const settingsOpen = ref(false);
+
+// 字体下拉：三个预设项在前，其后追加 DirectWrite 枚举的 Windows 已安装字体
+const fontOptions = computed(() => [
+  { value: 'consolas', label: 'Consolas' },
+  { value: 'mono', label: 'Cascadia Mono' },
+  { value: 'system', label: '系统字体' },
+  ...systemFonts.value
+    .filter((f) => f !== 'Consolas' && f !== 'Cascadia Mono')
+    .map((f) => ({ value: f, label: f })),
+]);
 
 const onDocClick = () => {
   settingsOpen.value = false;
@@ -47,16 +57,12 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
       </div>
       <label class="switch-row">
         <span>字体</span>
-        <SelfSelect
-          v-model="fontFamily"
-          :full="false"
-          :options="[
-            { value: 'consolas', label: 'Consolas' },
-            { value: 'mono', label: 'Cascadia Mono' },
-            { value: 'system', label: '系统字体' },
-          ]"
-        />
+        <SelfSelect v-model="fontFamily" :full="false" :options="fontOptions" />
       </label>
+      <div class="settings-group">
+        <span class="settings-label">日志导出路径（留空 = 安装目录 log）</span>
+        <input v-model="logDir" class="log-dir-input" :placeholder="defaultLogDir || '安装目录\\log'" spellcheck="false" />
+      </div>
       <p class="settings-hint">提示：时间戳与 RX/TX 标签在每个会话的接收区单独开关；接收区按住 Ctrl + 滚轮可实时缩放字号</p>
     </div>
   </div>
@@ -137,6 +143,12 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 
 .font-select {
   width: 150px;
+}
+
+.log-dir-input {
+  width: 100%;
+  font-size: 12.5px;
+  padding: 7px 10px;
 }
 
 .settings-hint {

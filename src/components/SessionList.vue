@@ -48,6 +48,12 @@ import { sessionSubLabel } from '../utils/session';
       </div>
       <p class="session-sub">{{ sessionSubLabel(session) }}</p>
 
+      <!-- 收发字节统计：按实际写出/读入的字节数累计（清空消息不清零） -->
+      <div class="byte-line">
+        <span class="tx">TX: {{ session.txBytes }} Byte</span>
+        <span class="rx">RX: {{ session.rxBytes }} Byte</span>
+      </div>
+
       <div class="session-actions">
         <label class="check-label" @click.stop>
           <input
@@ -154,6 +160,23 @@ import { sessionSubLabel } from '../utils/session';
   color: #6b7280;
 }
 
+/* 收发字节统计行：与副标题同缩进，等宽数字避免跳动 */
+.byte-line {
+  display: flex;
+  gap: 14px;
+  margin: 7px 0 0 18px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.byte-line .tx {
+  color: #2b6cb0;
+}
+
+.byte-line .rx {
+  color: #2e8b45;
+}
+
 /* 状态点即连接开关：hover 放大提示可点击 */
 .status-dot {
   width: 12px;
@@ -242,6 +265,14 @@ import { sessionSubLabel } from '../utils/session';
 .theme-dark .session-actions,
 .theme-dark .check-label {
   color: #9da0a8;
+}
+
+.theme-dark .byte-line .tx {
+  color: #6ca7e8;
+}
+
+.theme-dark .byte-line .rx {
+  color: #6bc97e;
 }
 
 .theme-dark .x-btn {

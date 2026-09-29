@@ -35,3 +35,6 @@ doc/
 
 # AI 工具上下文（本地开发辅助，不上传）
 AGENTS.md
+
+# 隔离编译验证目录
+/src-tauri/target-verify/

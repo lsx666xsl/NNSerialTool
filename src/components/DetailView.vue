@@ -68,7 +68,7 @@ const connected = computed(() => activeSession.value?.status === 'connected');
             <input type="checkbox" v-model="autoScroll" />
             自动滚动
           </label>
-          <button class="ghost-btn" title="把当前消息框全部内容（含时间戳/方向标签）导出到 log 目录" @click="exportSessionLog(activeSession)">
+          <button class="ghost-btn" title="把当前消息框全部内容（含时间戳/方向标签）导出为日志文件；保存路径可在设置中配置" @click="exportSessionLog(activeSession)">
             导出
           </button>
           <button class="ghost-btn" @click="clearSessionReceive(activeSession)">清空</button>

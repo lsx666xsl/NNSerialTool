@@ -76,14 +76,25 @@ watch(fontSize, (v) => writeStorage('st-font-size', v));
 export const fontFamily = ref(readStorage<string>('st-font-family', 'consolas'));
 watch(fontFamily, (v) => writeStorage('st-font-family', v));
 
+// 消息流字体栈：预设键映射；其余值视为系统扫描到的字体家族名直接使用（Consolas 兜底保持等宽对齐）
 export const fontFamilyStack = computed(() => {
   const table: Record<string, string> = {
     consolas: "Consolas, 'Courier New', monospace",
     mono: "'Cascadia Mono', 'JetBrains Mono', 'Fira Code', monospace",
     system: "Inter, -apple-system, 'Segoe UI', Arial, sans-serif",
   };
-  return table[fontFamily.value] ?? table.consolas;
+  const v = fontFamily.value;
+  if (table[v]) return table[v];
+  return v ? `'${v.replace(/'/g, '')}', Consolas, monospace` : table.consolas;
 });
+
+// 系统字体列表：Rust 端 DirectWrite 枚举（启动时拉一次），设置字体下拉的数据源
+export const systemFonts = ref<string[]>([]);
+// 日志导出目录：空 = exe 所在目录下的 log（安装目录随应用走）；设置里可自定义
+export const logDir = ref(readStorage<string>('st-log-dir', ''));
+watch(logDir, (v) => writeStorage('st-log-dir', v));
+// 默认导出目录（后端返回 exe\log），仅作设置输入框的占位提示
+export const defaultLogDir = ref('');
 
 // ---------- 发送选项与快捷命令 ----------
 export const sendSettings = ref<SendSettings>(
@@ -154,10 +165,9 @@ let unlistenAutoSent: UnlistenFn | undefined;
 let unlistenAutoSendStopped: UnlistenFn | undefined;
 
 // ---------- 日志导出 ----------
-// 把当前流式消息框“所见即所得”地导出到 log 目录：
-// 时间戳 / RX-TX 标签本来就是拼在消息前的字符串，按会话当前的显示开关原样带上。
-// ---------- 日志导出 ----------
-// 把当前流式消息框按会话当前的显示开关原样导出到 log 目录（所见即所得）。
+// 把当前流式消息框按会话当前的显示开关原样导出（所见即所得）。
+// 文件名 = 端口号或 IP_端口 + 导出时刻（串口：COM3_…；网络：127.0.0.1_9000_…）。
+// 目录 = 设置里配置的日志导出路径；留空 = exe 所在目录下的 log（安装目录随应用走）。
 export const exportSessionLog = async (session: ConnectionSession) => {
   if (session.messages.length === 0) {
     session.statusMsg = '当前没有消息可导出';
@@ -171,9 +181,20 @@ export const exportSessionLog = async (session: ConnectionSession) => {
     return line + m.text;
   });
   const header = `==== 导出 ${session.name} | ${nowText()} | ${session.messages.length} 条 ====` + String.fromCharCode(10);
+  // 端点标识：串口用端口号（COM3），网络用 IP_端口；时间戳精确到秒，文件名唯一
+  const endpoint =
+    session.type === 'serial'
+      ? session.config.port
+      : `${session.net?.host || '0.0.0.0'}_${session.net?.port || 0}`;
+  const stamp = `${todayText()}_${nowText().replace(/:/g, '-')}`;
+  const filename = `${endpoint}_${stamp}.log`;
   try {
-    await invoke('serial_log_write', { date: todayText(), text: header + lines.join(String.fromCharCode(10)) + String.fromCharCode(10) });
-    session.statusMsg = `已导出 ${session.messages.length} 条到 log/serial_${todayText()}.log`;
+    const path = await invoke<string>('serial_log_write', {
+      dir: logDir.value.trim() || null,
+      filename,
+      text: header + lines.join(String.fromCharCode(10)) + String.fromCharCode(10),
+    });
+    session.statusMsg = `已导出 ${session.messages.length} 条到 ${path}`;
   } catch (e) {
     session.statusMsg = `导出失败: ${e}`;
   }
@@ -288,6 +309,8 @@ export const createSession = () => {
         sendText: '',
         messages: [],
         messageCount: 0,
+        txBytes: 0,
+        rxBytes: 0,
         statusMsg: '已创建，等待打开',
         showTimestamp: true,
         filterRx: true,
@@ -303,6 +326,8 @@ export const createSession = () => {
         sendText: '',
         messages: [],
         messageCount: 0,
+        txBytes: 0,
+        rxBytes: 0,
         statusMsg: '已创建，等待打开',
         showTimestamp: true,
         filterRx: true,
@@ -466,6 +491,8 @@ export const sendData = async (session: ConnectionSession, textOverride?: string
     appendGlobalMessage(session, 'TX', raw);
     appendSessionMessage(session, 'TX', raw);
     session.messageCount += 1;
+    // 字节统计按实际写出的 UTF-8 长度计（含换行符）
+    session.txBytes += new TextEncoder().encode(raw + newlineSeq.value).length;
     if (textOverride === undefined && sendSettings.value.clearAfterSend) {
       session.sendText = '';
     }
@@ -656,12 +683,25 @@ export const initApp = async () => {
   await refreshOptions();
   await refreshPorts();
 
+  // 系统字体与默认日志目录：启动拉一次；浏览器调试环境无 Tauri API，静默跳过
+  try {
+    systemFonts.value = (await invoke<string[]>('system_fonts_list')) ?? [];
+  } catch {
+    /* 非桌面环境：字体下拉退回三个预设项 */
+  }
+  try {
+    defaultLogDir.value = (await invoke<string>('serial_log_dir')) ?? '';
+  } catch {
+    /* 非桌面环境：占位提示退回通用文案 */
+  }
+
   // serial-read_data 是 Rust 读线程 emit 出来的事件。
   // payload 里带 port，所以前端能知道这段数据属于哪个会话。
   unlistenSerialData = await listen<{ port: string; data: number[] }>('serial-read_data', (event) => {
     const session = findSerialSessionByPort(event.payload.port);
     if (!session) return;
 
+    session.rxBytes += event.payload.data.length;
     const text = decodeBytes(event.payload.data);
     enqueueRx(session, text);
   });
@@ -689,6 +729,7 @@ export const initApp = async () => {
     const session = findSerialSessionByPort(key) || sessions.value.find((item) => item.id === key);
     if (!session) return;
 
+    session.txBytes += event.payload.data.length;
     enqueueTx(session, decodeBytes(event.payload.data));
   });
 
@@ -714,6 +755,7 @@ export const initApp = async () => {
     const session = sessions.value.find((item) => item.id === event.payload.key);
     if (!session) return;
 
+    session.rxBytes += event.payload.data.length;
     const text = decodeBytes(event.payload.data);
     const prefix = event.payload.from ? `[${event.payload.from}] ` : '';
     enqueueRx(session, text, prefix);
