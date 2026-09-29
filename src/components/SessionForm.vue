@@ -51,7 +51,13 @@ const toggleAddr = () => {
   const input = addrWrap.value?.querySelector('input');
   if (!input) return;
   const rect = input.getBoundingClientRect();
-  addrPopStyle.value = { top: `${rect.bottom}px`, left: `${rect.left}px`, width: `${rect.width}px` };
+  // 根节点 zoom 缩放下 fixed 定位坐标换算（同 SelfSelect）
+  const zoom = Number(document.documentElement.style.zoom) || 1;
+  addrPopStyle.value = {
+    top: `${rect.bottom / zoom}px`,
+    left: `${rect.left / zoom}px`,
+    width: `${rect.width / zoom}px`,
+  };
   addrOpenRect = { left: rect.left, top: rect.top };
   addrOpen.value = true;
 };

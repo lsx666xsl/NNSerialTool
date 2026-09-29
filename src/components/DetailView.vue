@@ -25,6 +25,8 @@ const connected = computed(() => activeSession.value?.status === 'connected');
 
 // 拓展命令编辑模式：切换后按钮变成可编辑的名称/内容输入行
 const cmdEditing = ref(false);
+// 右侧拓展命令栏显示开关
+const cmdStripVisible = ref(true);
 
 const newlineOptions = [
   { value: 'none', label: '无' },
@@ -74,7 +76,7 @@ const newlineOptions = [
           <!-- 工具带：位于接收框与发送框之间 -->
           <div class="panel-toolbar">
             <button
-              class="mini-toggle"
+              class="tb-toggle"
               :class="{ on: autoScroll }"
               title="新消息到达时自动滚动到底部（向上翻看时自动暂停）"
               @click="autoScroll = !autoScroll"
@@ -86,16 +88,16 @@ const newlineOptions = [
             </button>
             <button class="ghost-btn" @click="clearSessionReceive(activeSession)">清空</button>
             <label class="toolbar-item" title="发送时附加的换行符">
-              换行
+              自动换行
               <SelfSelect v-model="sendSettings.newline" :full="false" :options="newlineOptions" />
             </label>
             <button
-              class="mini-toggle toolbar-end"
-              :class="{ on: sendSettings.clearAfterSend }"
-              title="发送后自动清空输入框"
-              @click="sendSettings.clearAfterSend = !sendSettings.clearAfterSend"
+              class="tb-toggle toolbar-end"
+              :class="{ on: cmdStripVisible }"
+              title="显示/隐藏右侧拓展命令栏"
+              @click="cmdStripVisible = !cmdStripVisible"
             >
-              发后清空
+              拓展命令
             </button>
           </div>
 
@@ -126,7 +128,7 @@ const newlineOptions = [
         </div>
 
         <!-- 拓展命令纵栏：点击即发送到当前会话；编辑模式下可改名/改内容/删除 -->
-        <div class="cmd-strip">
+        <div v-if="cmdStripVisible" class="cmd-strip">
           <div class="cmd-head">
             <span class="cmd-title">拓展命令</span>
             <button class="mini-toggle" :class="{ on: cmdEditing }" @click="cmdEditing = !cmdEditing">
@@ -231,16 +233,17 @@ const newlineOptions = [
   flex-shrink: 0;
 }
 
-.mini-toggle {
-  padding: 4px 10px;
-  font-size: 12px;
-  border-radius: 999px;
+/* 工具带矩形开关：与导出/清空等高（同内边距/字号/圆角），激活态蓝色高亮 */
+.tb-toggle {
+  padding: 8px 14px;
+  font-size: 13px;
+  border-radius: 6px;
   background: rgba(23, 26, 33, 0.05);
-  color: #8a9099;
+  color: #6b7280;
   box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
 }
 
-.mini-toggle.on {
+.tb-toggle.on {
   background: rgba(59, 111, 212, 0.12);
   color: #3563c2;
   box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.3);
@@ -402,13 +405,13 @@ const newlineOptions = [
   border-color: rgba(255, 255, 255, 0.09);
 }
 
-.theme-dark .mini-toggle {
+.theme-dark .tb-toggle {
   background: rgba(255, 255, 255, 0.06);
-  color: #8a9099;
+  color: #b3b7be;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
-.theme-dark .mini-toggle.on {
+.theme-dark .tb-toggle.on {
   background: rgba(87, 157, 245, 0.16);
   color: #8fbdf7;
   box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.4);

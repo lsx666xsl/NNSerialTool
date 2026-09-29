@@ -40,7 +40,14 @@ const toggle = () => {
   const box = wrapEl.value;
   if (!box) return;
   const rect = box.getBoundingClientRect();
-  popStyle.value = { top: `${rect.bottom}px`, left: `${rect.left}px`, width: `${rect.width}px` };
+  // 根节点带 zoom 整体缩放时，rect 是缩放后的视觉像素，而浮层的 fixed 定位
+  // 解释的是布局像素——需除以 zoom 换算，否则浮层会偏向左上（缩放越小偏得越多）
+  const zoom = Number(document.documentElement.style.zoom) || 1;
+  popStyle.value = {
+    top: `${rect.bottom / zoom}px`,
+    left: `${rect.left / zoom}px`,
+    width: `${rect.width / zoom}px`,
+  };
   openRect = { left: rect.left, top: rect.top };
   open.value = true;
 };

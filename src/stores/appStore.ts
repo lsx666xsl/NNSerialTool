@@ -101,7 +101,6 @@ export const defaultLogDir = ref('');
 export const sendSettings = ref<SendSettings>(
   readStorage<SendSettings>('st-send-settings', {
     newline: 'none',
-    clearAfterSend: false,
     loopSend: false,
     loopInterval: 1000,
   })
@@ -516,9 +515,6 @@ export const sendData = async (session: ConnectionSession, textOverride?: string
     session.messageCount += 1;
     // 字节统计按实际写出的 UTF-8 长度计（含换行符）
     session.txBytes += new TextEncoder().encode(raw + newlineSeq.value).length;
-    if (textOverride === undefined && sendSettings.value.clearAfterSend) {
-      session.sendText = '';
-    }
   } catch (e) {
     session.statusMsg = `发送失败: ${e}`;
     notify(session.statusMsg);

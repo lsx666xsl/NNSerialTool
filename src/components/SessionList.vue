@@ -8,7 +8,7 @@ import {
   toggleConnection,
   toggleSplitSession,
 } from '../stores/appStore';
-import { sessionPortLabel, sessionSubLabel } from '../utils/session';
+import { sessionSubLabel } from '../utils/session';
 
 // 连接列表：所有会话的卡片。
 // 标题行 = 状态点（左）+ 名称 + 端口参数 + 删除 X；字节行 = TX/RX 统计；
@@ -34,7 +34,7 @@ import { sessionPortLabel, sessionSubLabel } from '../utils/session';
       @click="activeSessionId = session.id"
     >
       <!-- 标题行：状态点即连接开关（绿=已连接点击关闭，红=已关闭点击开启）；
-           右侧为紧凑参数（波特率/端口）与删除 X -->
+           右侧为完整参数描述与删除 X（连接打开后才显示 X） -->
       <div class="session-main">
         <button
           class="status-dot"
@@ -43,15 +43,14 @@ import { sessionPortLabel, sessionSubLabel } from '../utils/session';
           @click.stop="toggleConnection(session)"
         ></button>
         <strong class="session-name">{{ session.name }}</strong>
-        <span class="name-extra">{{ sessionPortLabel(session) }}</span>
-        <button class="x-btn" title="删除会话" @click.stop="removeSession(session)">
+        <span class="name-extra">{{ sessionSubLabel(session) }}</span>
+        <button v-if="session.status === 'connected'" class="x-btn" title="删除会话" @click.stop="removeSession(session)">
           <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
           </svg>
         </button>
       </div>
-      <p class="session-sub">{{ sessionSubLabel(session) }}</p>
 
       <!-- 收发字节统计：按实际写出/读入的字节数累计（清空消息不清零） -->
       <div class="byte-line">
@@ -200,15 +199,13 @@ import { sessionPortLabel, sessionSubLabel } from '../utils/session';
   color: #c74541;
 }
 
-.session-sub {
-  margin: 4px 0 0 18px;
-  font-size: 13px;
-  color: #6b7280;
-}
-
-/* 标题行紧凑参数（波特率/端口）：位于 X 按钮左侧 */
+/* 标题行参数描述：完整文本（Local :9000 / 串口 · 9600bps 等），位于 X 左侧 */
 .name-extra {
   flex-shrink: 0;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 11px;
   color: #8a9099;
   font-variant-numeric: tabular-nums;
@@ -310,7 +307,6 @@ import { sessionPortLabel, sessionSubLabel } from '../utils/session';
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
 }
 
-.theme-dark .session-sub,
 .theme-dark .session-actions {
   color: #9da0a8;
 }

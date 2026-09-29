@@ -77,10 +77,9 @@ export type GlobalMessage = {
   text: string;
 };
 
-// 发送相关的可折叠选项：换行符 / 发送后清空 / 循环发送。
+// 发送相关的可折叠选项：换行符 / 循环发送。
 export type SendSettings = {
   newline: 'none' | 'lf' | 'crlf' | 'cr';
-  clearAfterSend: boolean;
   loopSend: boolean;
   loopInterval: number;
 };
