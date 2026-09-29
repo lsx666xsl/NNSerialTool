@@ -64,6 +64,16 @@ import { sendData, splitSessions } from '../stores/appStore';
   grid-template-columns: repeat(2, minmax(280px, 1fr));
 }
 
+/* 窄窗口（≤1100px，含默认 800x600）：两列各剩 300px 出头没法看，
+   改为纵向堆叠，卡片占满整行，网格自身纵向滚动 */
+@media (max-width: 1100px) {
+  .split-grid.count-2,
+  .split-grid.count-3,
+  .split-grid.count-4 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .split-card {
   min-height: 240px;
   display: flex;
@@ -110,6 +120,12 @@ import { sendData, splitSessions } from '../stores/appStore';
   align-items: center;
   gap: 8px;
   flex-shrink: 0;
+}
+
+/* 窄卡片里输入框可收缩，发送按钮不换行，避免横向溢出 */
+.split-send input {
+  flex: 1;
+  min-width: 0;
 }
 
 /* 深色主题 */

@@ -10,24 +10,24 @@ import {
 } from '../stores/appStore';
 
 // 总线视图：所有连接的收发记录汇成一条时间线，支持按连接/方向/关键字过滤。
+// 过滤栏：左中右三列均分，标签在控件上方（纵向排列更整齐）。
 </script>
 
 <template>
   <section class="content-card global-view">
     <div class="filter-bar">
-      <label>
-        连接
+      <div class="filter-col">
+        <span class="filter-label">连接</span>
         <SelfSelect
           v-model="busSessionFilter"
-          :full="false"
           :options="sessions.map((s) => ({ value: s.id, label: s.name }))"
+          placeholder="全部"
         />
-      </label>
-      <label>
-        方向
+      </div>
+      <div class="filter-col">
+        <span class="filter-label">方向</span>
         <SelfSelect
           v-model="busDirectionFilter"
-          :full="false"
           :options="[
             { value: 'all', label: '全部' },
             { value: 'RX', label: 'RX' },
@@ -35,12 +35,12 @@ import {
             { value: 'INFO', label: 'INFO' },
           ]"
         />
-      </label>
-      <label>
-        关键字
+      </div>
+      <div class="filter-col">
+        <span class="filter-label">关键字</span>
         <input v-model="busKeyword" placeholder="搜索内容或连接名" />
-      </label>
-      <button class="ghost-btn" @click="globalMessages = []">清空总线</button>
+      </div>
+      <button class="ghost-btn filter-clear" @click="globalMessages = []">清空总线</button>
     </div>
 
     <div class="message-list">
@@ -62,25 +62,34 @@ import {
   gap: 14px;
 }
 
+/* 过滤栏：左中右三列均分（清空按钮自适应宽），标签在控件上方 */
 .filter-bar {
+  display: grid;
+  /* minmax(0,1fr)：允许三列收缩到内容以下，长连接名靠省略号截断，窄窗口不溢出 */
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.filter-col {
   display: flex;
-  align-items: center;
-  justify-content: flex-start;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.filter-bar label {
-  min-width: 150px;
-  display: inline-flex;
-  align-items: center;
+  flex-direction: column;
   gap: 6px;
-  font-size: 13px;
-  color: #3b414b;
 }
 
-.filter-bar .self-select {
-  min-width: 130px;
+.filter-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.filter-col :deep(.self-select),
+.filter-col input {
+  width: 100%;
+}
+
+.filter-clear {
+  white-space: nowrap;
+  align-self: end;
 }
 
 .message-list {
@@ -115,7 +124,8 @@ import {
 
 .message-line {
   display: grid;
-  grid-template-columns: 104px 120px 46px 1fr;
+  /* minmax(0, Npx)：时间/来源列窄窗口时可收缩并让位；正文列保底 60px 不被挤没 */
+  grid-template-columns: minmax(0, 104px) minmax(0, 120px) 46px minmax(60px, 1fr);
   gap: 10px;
   padding: 5px 8px;
   border-radius: 4px;
@@ -124,6 +134,8 @@ import {
   word-break: break-all;
 }
 
+/* 来源/时间列：超长或被压缩时截断显示，不折行、不横向溢出 */
+.message-line .time,
 .message-line .source {
   overflow: hidden;
   text-overflow: ellipsis;

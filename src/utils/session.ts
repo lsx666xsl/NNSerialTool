@@ -19,15 +19,6 @@ export const netSessionName = (type: ConnectionType, net: NetConfig) => {
   return `UDP :${net.localPort || net.port}`;
 };
 
-// 会话的端点描述：日志与卡片副标题共用
-export const sessionEndpoint = (session: ConnectionSession) => {
-  if (session.type === 'serial') return session.config.port;
-  if (!session.net) return session.name;
-  if (session.type === 'tcp_server') return `tcp-server:${session.net.port}`;
-  if (session.type === 'udp') return `udp:${session.net.host}:${session.net.port}`;
-  return `tcp:${session.net.host}:${session.net.port}`;
-};
-
 // 会话卡片的灰色副标题：纯地址/参数描述，不与标题中的类型重复
 export const sessionSubLabel = (session: ConnectionSession) => {
   if (session.type === 'serial') return `串口 · ${session.config.baudRate}bps`;

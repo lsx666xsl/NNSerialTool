@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
 import SelfSelect from './SelfSelect.vue';
-import { fontFamily, fontSize, saveLog, themeMode } from '../stores/appStore';
+import { fontFamily, fontSize, themeMode } from '../stores/appStore';
 
 // 设置菜单：主题三态 + 字号/字体 + 日志落盘 + 时间戳开关。
 // 点击菜单外部自动收起（菜单内部点击通过 @click.stop 阻止冒泡）。
@@ -56,10 +56,6 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
             { value: 'system', label: '系统字体' },
           ]"
         />
-      </label>
-      <label class="switch-row">
-        <span>保存日志到 log 目录</span>
-        <input type="checkbox" v-model="saveLog" />
       </label>
       <p class="settings-hint">提示：时间戳与 RX/TX 标签在每个会话的接收区单独开关；接收区按住 Ctrl + 滚轮可实时缩放字号</p>
     </div>

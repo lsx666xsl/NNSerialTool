@@ -208,16 +208,19 @@ const connected = computed(() => activeSession.value?.status === 'connected');
   margin-left: auto;
 }
 
-/* 发送栏：输入框 + 自动发送 + 发送按钮（右下角框外） */
+/* 发送栏：输入框 + 自动发送 + 发送按钮（右下角框外）；窄窗口放不下时按钮换行，不产生横向溢出 */
 .send-row {
   display: flex;
   align-items: flex-end;
   gap: 10px;
+  flex-wrap: wrap;
   flex-shrink: 0;
 }
 
 .send-input {
   flex: 1;
+  /* 允许在窄窗口下收缩，避免发送栏把面板撑出横向滚动 */
+  min-width: 0;
   resize: none;
   min-height: 46px;
   max-height: 120px;
@@ -237,6 +240,9 @@ const connected = computed(() => activeSession.value?.status === 'connected');
 
 .auto-interval {
   width: 92px;
+  /* 窄窗口下允许收缩（最低 60px），给发送按钮让位，避免发送栏 4px 级横向溢出 */
+  min-width: 60px;
+  flex-shrink: 1;
 }
 
 .send-btn {

@@ -15,7 +15,7 @@ import type {
 } from '../types';
 import { readStorage, writeStorage } from '../utils/storage';
 import { decodeBytes, nowText, todayText } from '../utils/format';
-import { netSessionName, sessionEndpoint } from '../utils/session';
+import { netSessionName } from '../utils/session';
 
 // ==================================================================
 // 单例应用状态仓：整个应用只有一份，各组件直接 import 使用。
@@ -62,8 +62,6 @@ export const appliedTheme = computed<import('../types').AppliedTheme>(() =>
 watch(themeMode, (mode) => writeStorage('st-theme', mode));
 
 // ---------- 显示与日志偏好 ----------
-export const saveLog = ref(readStorage<boolean>('st-save-log', false));
-watch(saveLog, (v) => writeStorage('st-save-log', v));
 export const showTimestamp = ref(readStorage<boolean>('st-timestamp', true));
 watch(showTimestamp, (v) => writeStorage('st-timestamp', v));
 // 自动滚动默认关闭（安全默认：自动发送/高频模式下用户自己控制是否跟随）
@@ -148,7 +146,6 @@ export const filteredGlobalMessages = computed(() => {
 
 // ---------- 内部句柄 ----------
 let pollTimer: ReturnType<typeof setInterval>;
-let logTimer: ReturnType<typeof setInterval>;
 let unlistenSerialData: UnlistenFn | undefined;
 let unlistenSerialDisconnect: UnlistenFn | undefined;
 let unlistenNetData: UnlistenFn | undefined;
@@ -156,28 +153,11 @@ let unlistenNetDisconnect: UnlistenFn | undefined;
 let unlistenAutoSent: UnlistenFn | undefined;
 let unlistenAutoSendStopped: UnlistenFn | undefined;
 
-// ---------- 日志落盘 ----------
-// 收发消息先进内存队列，每秒批量 flush 一次，避免高速串口下产生高频 invoke。
-const logQueue: string[] = [];
-
-export const enqueueLog = (session: ConnectionSession, direction: MessageDirection, text: string) => {
-  if (!saveLog.value) return;
-  logQueue.push(`[${nowText()}] [${sessionEndpoint(session)}] [${direction}] ${text.replace(/\r?\n$/, '')}\n`);
-};
-
-const flushLog = async () => {
-  if (logQueue.length === 0) return;
-  const content = logQueue.splice(0).join('');
-  try {
-    await invoke('serial_log_write', { date: todayText(), text: content });
-  } catch (e) {
-    console.error('写入日志失败:', e);
-  }
-};
-
 // ---------- 日志导出 ----------
 // 把当前流式消息框“所见即所得”地导出到 log 目录：
 // 时间戳 / RX-TX 标签本来就是拼在消息前的字符串，按会话当前的显示开关原样带上。
+// ---------- 日志导出 ----------
+// 把当前流式消息框按会话当前的显示开关原样导出到 log 目录（所见即所得）。
 export const exportSessionLog = async (session: ConnectionSession) => {
   if (session.messages.length === 0) {
     session.statusMsg = '当前没有消息可导出';
@@ -185,15 +165,14 @@ export const exportSessionLog = async (session: ConnectionSession) => {
   }
   const withTs = session.showTimestamp ?? true;
   const lines = session.messages.map((m) => {
-    // 方向标签恒显示，与消息区 meta 行保持一致
     let line = '';
     if (withTs) line += `[${m.time}] `;
     line += `[${m.direction}] `;
     return line + m.text;
   });
-  const header = `==== 导出 ${session.name} · ${nowText()} · ${session.messages.length} 条 ====\n`;
+  const header = `==== 导出 ${session.name} | ${nowText()} | ${session.messages.length} 条 ====` + String.fromCharCode(10);
   try {
-    await invoke('serial_log_write', { date: todayText(), text: header + lines.join('\n') + '\n' });
+    await invoke('serial_log_write', { date: todayText(), text: header + lines.join(String.fromCharCode(10)) + String.fromCharCode(10) });
     session.statusMsg = `已导出 ${session.messages.length} 条到 log/serial_${todayText()}.log`;
   } catch (e) {
     session.statusMsg = `导出失败: ${e}`;
@@ -381,7 +360,6 @@ const openSerial = async (session: ConnectionSession) => {
     session.statusMsg = result;
     appendGlobalMessage(session, 'INFO', result);
     appendSessionMessage(session, 'INFO', result);
-    enqueueLog(session, 'INFO', result);
   } catch (e) {
     session.statusMsg = `打开失败: ${e}`;
     appendGlobalMessage(session, 'INFO', session.statusMsg);
@@ -404,7 +382,6 @@ const openNet = async (session: ConnectionSession) => {
     session.statusMsg = result;
     appendGlobalMessage(session, 'INFO', result);
     appendSessionMessage(session, 'INFO', result);
-    enqueueLog(session, 'INFO', result);
   } catch (e) {
     session.statusMsg = `打开失败: ${e}`;
     appendGlobalMessage(session, 'INFO', session.statusMsg);
@@ -427,7 +404,6 @@ const closeSerial = async (session: ConnectionSession) => {
     }
     appendGlobalMessage(session, 'INFO', result);
     appendSessionMessage(session, 'INFO', result);
-    enqueueLog(session, 'INFO', result);
   } catch (e) {
     session.statusMsg = `关闭失败: ${e}`;
     appendGlobalMessage(session, 'INFO', session.statusMsg);
@@ -446,7 +422,6 @@ const closeNet = async (session: ConnectionSession) => {
     }
     appendGlobalMessage(session, 'INFO', result);
     appendSessionMessage(session, 'INFO', result);
-    enqueueLog(session, 'INFO', result);
   } catch (e) {
     session.statusMsg = `关闭失败: ${e}`;
     appendGlobalMessage(session, 'INFO', session.statusMsg);
@@ -490,7 +465,6 @@ export const sendData = async (session: ConnectionSession, textOverride?: string
     }
     appendGlobalMessage(session, 'TX', raw);
     appendSessionMessage(session, 'TX', raw);
-    enqueueLog(session, 'TX', raw);
     session.messageCount += 1;
     if (textOverride === undefined && sendSettings.value.clearAfterSend) {
       session.sendText = '';
@@ -632,7 +606,6 @@ const flushPendingRx = () => {
     session.messageCount += 1;
     appendGlobalMessage(session, 'RX', display);
     appendSessionMessage(session, 'RX', display);
-    enqueueLog(session, 'RX', raw.replace(/\r?\n$/, ''));
     forwardIfConfigured(session, raw);
   }
   pendingRx.clear();
@@ -658,7 +631,6 @@ const flushPendingTx = () => {
     session.messageCount += 1;
     appendGlobalMessage(session, 'TX', raw);
     appendSessionMessage(session, 'TX', raw);
-    enqueueLog(session, 'TX', raw.replace(/\r?\n$/, ''));
   }
   pendingTx.clear();
 };
@@ -706,7 +678,6 @@ export const initApp = async () => {
     }
     appendGlobalMessage(session, 'INFO', session.statusMsg);
     appendSessionMessage(session, 'INFO', session.statusMsg);
-    enqueueLog(session, 'INFO', session.statusMsg);
     // 断开后主动清理 Rust 侧状态表，否则死句柄残留会导致同端口无法重新打开
     invoke('serial_close', { port: session.config.port }).catch(() => {});
   });
@@ -760,20 +731,17 @@ export const initApp = async () => {
     }
     appendGlobalMessage(session, 'INFO', session.statusMsg);
     appendSessionMessage(session, 'INFO', session.statusMsg);
-    enqueueLog(session, 'INFO', session.statusMsg);
     // 断开后主动清理 Rust 侧状态表，否则死句柄残留会导致同 key 无法重新打开
     invoke('net_close', { key: session.id }).catch(() => {});
   });
 
   pollTimer = setInterval(refreshPorts, 5000);
-  logTimer = setInterval(flushLog, 1000);
 };
 
 // 清理事件监听与定时器，避免窗口热更新后重复监听同一个事件。
 export const disposeApp = () => {
   systemDarkQuery.removeEventListener('change', onSystemThemeChange);
   clearInterval(pollTimer);
-  clearInterval(logTimer);
   void stopLoop();
   // 刷掉尚未落盘的合帧缓冲，保证最后一批数据不丢
   if (rxFlushTimer) {
@@ -781,13 +749,12 @@ export const disposeApp = () => {
     rxFlushTimer = undefined;
   }
   flushPendingRx();
-  // 刷掉尚未落盘的 TX 合帧缓冲，保证最后一批自动发送记录不丢
+  // 刷掉尚未落盘的 TX 合帧缓冲
   if (txFlushTimer) {
     clearTimeout(txFlushTimer);
     txFlushTimer = undefined;
   }
   flushPendingTx();
-  void flushLog();
   unlistenSerialData?.();
   unlistenSerialDisconnect?.();
   unlistenNetData?.();

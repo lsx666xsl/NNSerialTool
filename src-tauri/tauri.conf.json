@@ -16,8 +16,11 @@
         "width": 800,
         "height": 600,
         "minWidth": 720,
-        "minHeight": 520,
-        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --no-proxy-server"
+        "minHeight": 580,
+        "additionalBrowserArgs": "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --no-proxy-server",
+        "decorations": false,
+        "shadow": true,
+        "backgroundColor": "#1e1f22"
       }
     ],
     "security": {
