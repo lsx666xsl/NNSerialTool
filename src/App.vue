@@ -27,11 +27,12 @@ import SplitView from './components/SplitView.vue';
 import ViewSwitch from './components/ViewSwitch.vue';
 
 // ---------- 整体 UI 缩放 ----------
-// 界面随窗口宽度整体缩放（zoom 挂在根节点，Teleport 浮层同步缩放）：
-// 以 1280px 为基准 1.0，限制在 0.85~1.25 之间——过小会破坏可读性与布局美感。
+// 等比例缩放：以 1280px 宽为基准 1.0，随窗口宽度线性缩放，不设上限——
+// 横向拉长时侧栏、文字、控件按同一比例一起变大，布局比例与基准状态完全一致；
+// 仅保留 0.85 下限，防止最小窗口下过小影响可读性。
 const uiScale = ref(1);
 const updateUiScale = () => {
-  uiScale.value = Math.min(1.25, Math.max(0.85, window.innerWidth / 1280));
+  uiScale.value = Math.max(0.85, window.innerWidth / 1280);
 };
 watchEffect(() => {
   document.documentElement.style.zoom = String(uiScale.value);
