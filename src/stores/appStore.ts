@@ -328,6 +328,23 @@ export const createSession = () => {
     notify(`${newSessionConfig.value.port} 已存在连接会话，不能重复创建`);
     return;
   }
+  // 网络不重复创建：同类型 + 完全相同的地址/端口配置视为同一会话
+  if (!isSerial) {
+    const net = newNetConfig.value;
+    const dup = sessions.value.find(
+      (item) =>
+        item.type === newSessionType.value &&
+        item.net &&
+        item.net.host === net.host &&
+        item.net.port === net.port &&
+        item.net.localPort === net.localPort &&
+        item.net.localHost === net.localHost
+    );
+    if (dup) {
+      notify(`${dup.name} 已存在连接会话，不能重复创建`);
+      return;
+    }
+  }
   // 命名：仅在列表里已存在"同名"会话时才追加 #2/#3 递增后缀；
   // 删除旧会话后名字会被回收复用（按名字查重，而非按端口计数）
   const baseName = isSerial
