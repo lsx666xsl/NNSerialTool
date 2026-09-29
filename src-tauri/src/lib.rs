@@ -15,6 +15,7 @@ use serial::*;
 pub fn run() {
     tauri::Builder::default() // 创建 Tauri 应用构建器
         .plugin(tauri_plugin_opener::init()) // 注册 opener 插件（打开 URL/文件）
+        .plugin(tauri_plugin_dialog::init()) // 注册 dialog 插件（原生目录选择器）
         .manage(SharedState::default()) // 将串口状态注入为全局共享状态
         .manage(SharedNetState::default()) // 将网络连接状态注入为全局共享状态
         .invoke_handler(tauri::generate_handler![

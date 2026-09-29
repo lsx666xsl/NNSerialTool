@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { open } from '@tauri-apps/plugin-dialog';
 import SelfSelect from './SelfSelect.vue';
-import { defaultLogDir, fontFamily, fontSize, logDir, systemFonts, themeMode } from '../stores/appStore';
+import { defaultLogDir, fontFamily, fontSize, logDir, notify, systemFonts, themeMode } from '../stores/appStore';
 
-// 设置菜单：主题三态 + 字号/字体 + 日志导出路径 + 时间戳开关。
-// 点击菜单外部自动收起（菜单内部点击通过 @click.stop 阻止冒泡）。
+// 设置菜单：主题三态 + 字号 + 字体 + 日志导出路径（带目录选择器）。
+// 每组均为"标签一行、控件另起一行"的纵向布局；点击菜单外部自动收起。
 const settingsOpen = ref(false);
 
 // 字体下拉：三个预设项在前，其后追加 DirectWrite 枚举的 Windows 已安装字体
@@ -16,6 +17,19 @@ const fontOptions = computed(() => [
     .filter((f) => f !== 'Consolas' && f !== 'Cascadia Mono')
     .map((f) => ({ value: f, label: f })),
 ]);
+
+// 系统目录选择器：选中即写入并持久化；取消则保持原值（留空 = 安装目录 log 默认）
+const pickLogDir = async () => {
+  try {
+    const dir = await open({ directory: true, multiple: false, title: '选择日志导出目录' });
+    if (typeof dir === 'string' && dir) {
+      logDir.value = dir;
+      notify(`日志导出目录已设置：${dir}`);
+    }
+  } catch {
+    /* 浏览器调试环境无原生对话框，静默忽略 */
+  }
+};
 
 const onDocClick = () => {
   settingsOpen.value = false;
@@ -39,7 +53,6 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
         <span class="settings-label">主题</span>
         <SelfSelect
           v-model="themeMode"
-          :full="false"
           :options="[
             { value: 'light', label: '浅色' },
             { value: 'dark', label: '深色' },
@@ -55,15 +68,17 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
           </button>
         </div>
       </div>
-      <label class="switch-row">
-        <span>字体</span>
-        <SelfSelect v-model="fontFamily" :full="false" :options="fontOptions" />
-      </label>
+      <div class="settings-group">
+        <span class="settings-label">字体</span>
+        <SelfSelect v-model="fontFamily" :options="fontOptions" />
+      </div>
       <div class="settings-group">
         <span class="settings-label">日志导出路径（留空 = 安装目录 log）</span>
-        <input v-model="logDir" class="log-dir-input" :placeholder="defaultLogDir || '安装目录\\log'" spellcheck="false" />
+        <div class="log-dir-row">
+          <input v-model="logDir" class="log-dir-input" :placeholder="defaultLogDir || '安装目录\\log'" spellcheck="false" />
+          <button class="dir-pick" title="选择日志导出目录" @click="pickLogDir">…</button>
+        </div>
       </div>
-      <p class="settings-hint">提示：时间戳与 RX/TX 标签在每个会话的接收区单独开关；接收区按住 Ctrl + 滚轮可实时缩放字号</p>
     </div>
   </div>
 </template>
@@ -131,30 +146,34 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   box-shadow: none;
 }
 
-.switch-row {
+.log-dir-row {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
-  color: #3b414b;
-  cursor: pointer;
-}
-
-.font-select {
-  width: 150px;
+  gap: 6px;
+  align-items: stretch;
 }
 
 .log-dir-input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   font-size: 12.5px;
   padding: 7px 10px;
 }
 
-.settings-hint {
-  font-size: 11px;
-  color: #8a9099;
-  margin: 2px 0 0;
+/* 目录选择按钮：三个点，与输入框同高 */
+.dir-pick {
+  width: 34px;
+  padding: 0;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  background: rgba(23, 26, 33, 0.05);
+  color: #4b5563;
+  box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
+}
+
+.dir-pick:hover {
+  background: rgba(59, 111, 212, 0.1);
+  color: #3563c2;
 }
 
 /* 深色主题 */
@@ -186,7 +205,14 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   box-shadow: none;
 }
 
-.theme-dark .switch-row {
-  color: #c6c9cf;
+.theme-dark .dir-pick {
+  background: rgba(255, 255, 255, 0.06);
+  color: #b3b7be;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.theme-dark .dir-pick:hover {
+  background: rgba(87, 157, 245, 0.16);
+  color: #8fbdf7;
 }
 </style>

@@ -20,6 +20,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2" # 原生目录/文件选择对话框（设置里选择日志导出路径）
 serialport = "4.9.0"
 serde = "1.0.228"
 if-addrs = "0.13"
