@@ -528,6 +528,34 @@ pub async fn net_close(key: String, state: tauri::State<'_, SharedNetState>) -> 
 }
 
 /*
+*   描述：同步版全量关闭（供应用退出事件调用——退出路径不能走异步任务）
+*/
+pub fn close_all_sync(state: &SharedNetState) {
+    if let Ok(mut s) = state.lock() {
+        for (_, handle) in s.conns.drain() {
+            handle.stop_flag.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+/*
+*   描述：关闭全部网络连接（前端页面重载/HMR 后会话列表清空，后端残留的监听/连接
+*         若不释放会一直占用端口，导致"明明没使用却绑定失败 os error 10048"）
+*   调用方法：前端初始化（initApp）时调用一次，保证后端状态与界面一致
+*/
+#[tauri::command]
+pub async fn net_close_all(state: tauri::State<'_, SharedNetState>) -> Result<usize, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let count = state.lock().map_err(|e| e.to_string())?.conns.len();
+        close_all_sync(&state);
+        Ok(count)
+    })
+    .await
+    .map_err(|e| format!("任务执行失败: {}", e))?
+}
+
+/*
 *   描述：通过网络连接发送数据。TCP 服务端会向所有已接入客户端广播。
 *   调用方法：前端调用: invoke("net_write")
 *   传参：key：会话唯一标识, data：待发送文本

@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { computed } from 'vue';
 import {
   activeSessionId,
+  closeConnection,
   connectedCount,
+  openConnection,
   removeSession,
   sessions,
   selectedSessionIds,
@@ -11,15 +14,38 @@ import {
 import { sessionSubLabel } from '../utils/session';
 
 // 连接列表：所有会话的卡片。
-// 标题行 = 状态点（左）+ 名称 + 端口参数 + 删除 X；字节行 = TX/RX 统计；
-// 开关行 = 分屏 / 总览 / Timestamp / RX / TX / 计数，全部为主题小按钮。
+// 标题行 = 状态点（左）+ 名称 + 端口参数 + 删除 X（仅连接打开后）；字节行 = TX/RX 统计；
+// 开关行 = 分屏 / 总览 / Timestamp / RX / TX / 计数；标题栏右侧 = 一键开关全部会话。
+
+// 全部已连接时按钮变为"全部关闭"，否则为"全部开启"
+const allConnected = computed(() => sessions.value.length > 0 && connectedCount.value === sessions.value.length);
+
+const toggleAllSessions = () => {
+  for (const session of sessions.value) {
+    if (allConnected.value) {
+      if (session.status === 'connected') closeConnection(session);
+    } else if (session.status === 'closed') {
+      openConnection(session);
+    }
+  }
+};
 </script>
 
 <template>
   <section class="panel session-list">
     <div class="section-title">
       <h2>连接列表</h2>
-      <span>{{ connectedCount }}/{{ sessions.length }} 已连接</span>
+      <span class="list-side">
+        <button
+          class="list-toggle"
+          :disabled="sessions.length === 0"
+          :title="allConnected ? '关闭列表中的全部连接' : '打开列表中的全部连接'"
+          @click.stop="toggleAllSessions"
+        >
+          {{ allConnected ? '全部关闭' : '全部开启' }}
+        </button>
+        <span>{{ connectedCount }}/{{ sessions.length }} 已连接</span>
+      </span>
     </div>
 
     <div v-if="sessions.length === 0" class="empty-box">还没有连接会话，请先添加一个。</div>
@@ -118,6 +144,26 @@ import { sessionSubLabel } from '../utils/session';
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+/* 标题行右侧：一键开关 + 计数 */
+.list-side {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.list-toggle {
+  padding: 3px 10px;
+  font-size: 12px;
+  border-radius: 5px;
+  background: rgba(59, 111, 212, 0.1);
+  color: #3563c2;
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.25);
+}
+
+.list-toggle:hover:not(:disabled) {
+  background: rgba(59, 111, 212, 0.2);
 }
 
 .session-scroll {
@@ -313,6 +359,12 @@ import { sessionSubLabel } from '../utils/session';
 
 .theme-dark .name-extra {
   color: #7c828c;
+}
+
+.theme-dark .list-toggle {
+  background: rgba(87, 157, 245, 0.16);
+  color: #8fbdf7;
+  box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.4);
 }
 
 .theme-dark .byte-line .tx {

@@ -117,7 +117,7 @@ export const quickCommands = ref<QuickCommand[]>(
 );
 watch(quickCommands, (v) => writeStorage('st-quick-cmds', v), { deep: true });
 
-export const newlineSeq = computed(() => {
+const newlineSeq = computed(() => {
   const table: Record<SendSettings['newline'], string> = { none: '', lf: '\n', crlf: '\r\n', cr: '\r' };
   return table[sendSettings.value.newline];
 });
@@ -203,7 +203,7 @@ export const exportSessionLog = async (session: ConnectionSession) => {
 // ---------- 消息写入 ----------
 // RX/TX 数据写总线（仅限已加入总览的会话）+ 会话内消息，各自上限 2000 条。
 // INFO 系统提示不再入消息流，统一走 notify() 中央通知。
-export const appendGlobalMessage = (session: ConnectionSession, direction: MessageDirection, text: string) => {
+const appendGlobalMessage = (session: ConnectionSession, direction: MessageDirection, text: string) => {
   if (!session.inBus) return; // 总览选择性加入：未加入的会话不汇入总线
   globalMessages.value.push({
     id: `${Date.now()}-${Math.random()}`,
@@ -219,7 +219,7 @@ export const appendGlobalMessage = (session: ConnectionSession, direction: Messa
   }
 };
 
-export const appendSessionMessage = (session: ConnectionSession, direction: MessageDirection, text: string) => {
+const appendSessionMessage = (session: ConnectionSession, direction: MessageDirection, text: string) => {
   const message: SessionMessage = {
     id: `${Date.now()}-${Math.random()}`,
     time: nowText(),
@@ -290,7 +290,7 @@ export const refreshPorts = async () => {
   }
 };
 
-export const refreshOptions = async () => {
+const refreshOptions = async () => {
   try {
     baudRates.value = await invoke<number[]>('serial_baudrate_list');
     dataBits.value = await invoke<number[]>('serial_databit_list');
@@ -554,7 +554,7 @@ export const clearSessionReceive = (session: ConnectionSession) => {
 // ---------- 消息转发 ----------
 // 按转发界面配置的规则执行：来源会话收到的数据原样发往目标会话（文本透传，跨串口/网络均可）。
 // 只在收到数据（RX）时触发；目标会话必须已连接。转发本身不会再次引发转发，天然无环路。
-export const forwardIfConfigured = (session: ConnectionSession, text: string) => {
+const forwardIfConfigured = (session: ConnectionSession, text: string) => {
   for (const rule of forwardRules.value) {
     if (rule.fromId !== session.id) continue;
     const target = sessions.value.find((item) => item.id === rule.toId);
@@ -731,6 +731,11 @@ const findSerialSessionByPort = (port: string) =>
 
 // 装配事件监听与定时器，App.vue 在 onMounted 调用一次。
 export const initApp = async () => {
+  // 清理后端残留连接：页面重载/HMR 会清空前端会话列表，但后端的串口句柄与
+  // 网络监听不会自动释放——不清理会出现"明明没使用却绑定失败 (10048)"的假占用
+  await invoke('serial_close_all').catch(() => {});
+  await invoke('net_close_all').catch(() => {});
+
   // system 模式下跟随系统深浅色变化。
   systemDarkQuery.addEventListener('change', onSystemThemeChange);
 

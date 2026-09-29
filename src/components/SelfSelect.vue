@@ -22,10 +22,9 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: string | number): void }>
 const open = ref(false);
 const wrapEl = ref<HTMLElement | null>(null);
 const popEl = ref<HTMLElement | null>(null);
-// 定位信息：向下展开用 top，向下放不下自动改为向上展开（bottom），并钳制最大高度出滚动条
-const popStyle = ref<{ left: string; width: string; maxHeight: string; top?: string; bottom?: string }>({
-  left: '0px',
-  width: '0px',
+// 定位信息：宽度用 min-width（浮层本体 max-content 撑开），保证短触发框也能完整显示长选项
+const popStyle = ref<{ left?: string; right?: string; minWidth: string; maxHeight: string; top?: string; bottom?: string }>({
+  minWidth: '0px',
   maxHeight: '240px',
 });
 // 展开时记录触发框位置：用于区分"会移动锚点的滚动"与"无关滚动"（如消息流自动滚动）
@@ -51,11 +50,16 @@ const toggle = () => {
   // 视口边界钳制：下方放不下时收缩浮层高度出滚动条；再不够则整体向上展开
   const availBelow = (window.innerHeight - rect.bottom - 10) / zoom;
   const availAbove = (rect.top - 10) / zoom;
-  const style: { left: string; width: string; maxHeight: string; top?: string; bottom?: string } = {
-    left: `${rect.left / zoom}px`,
-    width: `${rect.width / zoom}px`,
+  const style: { left?: string; right?: string; minWidth: string; maxHeight: string; top?: string; bottom?: string } = {
+    minWidth: `${rect.width / zoom}px`,
     maxHeight: '240px',
   };
+  // 横向：默认与触发框左对齐；触发框太靠右时改锚右缘，防止 max-content 撑出右边界
+  if (rect.right + 160 > window.innerWidth) {
+    style.right = `${(window.innerWidth - rect.right) / zoom}px`;
+  } else {
+    style.left = `${rect.left / zoom}px`;
+  }
   if (availBelow >= 96 || availBelow >= availAbove) {
     style.top = `${rect.bottom / zoom}px`;
     style.maxHeight = `${Math.max(96, Math.min(240, availBelow))}px`;
@@ -188,10 +192,13 @@ onUnmounted(() => {
   transform: rotate(180deg);
 }
 
-/* 浮层：fixed 定位（Teleport 到 body），紧贴显示框下缘，无间距 */
+/* 浮层：fixed 定位（Teleport 到 body），紧贴显示框下缘，无间距；
+   宽度 max-content 撑开 + min-width 不小于触发框，长选项完整显示不截断 */
 .self-select-pop {
   position: fixed;
   z-index: 90;
+  width: max-content;
+  max-width: 320px;
   padding: 4px;
   background: #ffffff;
   border: 1px solid rgba(23, 26, 33, 0.14);
@@ -208,8 +215,6 @@ onUnmounted(() => {
   color: #23262b;
   cursor: pointer;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .ss-opt:hover {

@@ -1,4 +1,6 @@
 // ============ 模块声明 ============
+use tauri::Manager;
+
 mod fonts;
 mod net;
 mod serial;
@@ -27,6 +29,7 @@ pub fn run() {
             serial_stopbit_list,
             serial_open,
             serial_close,
+            serial_close_all, // 关闭全部串口（前端初始化时清理残留句柄）
             serial_write,
             serial_log_write,
             serial_log_dir, // 默认日志导出目录（exe 所在目录下的 log）
@@ -39,11 +42,20 @@ pub fn run() {
             serial_set_stopbits,
             net_open, // 打开网络连接（TCP 客户端/服务端/UDP）
             net_close,
+            net_close_all, // 关闭全部网络连接（前端初始化时清理残留监听）
             net_write,
             net_auto_send_start,
             net_auto_send_stop,
             net_local_ips,
         ])
-        .run(tauri::generate_context!()) // 启动应用
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app_handle, event| {
+            // 应用退出（窗口关闭/进程结束）：强制释放全部串口句柄与网络监听，
+            // 避免退出后端口仍被占用（下次启动报 os error 10048 / 串口打不开）
+            if let tauri::RunEvent::Exit = event {
+                serial::close_all_sync(app_handle.state::<SharedState>().inner());
+                net::close_all_sync(app_handle.state::<SharedNetState>().inner());
+            }
+        });
 }

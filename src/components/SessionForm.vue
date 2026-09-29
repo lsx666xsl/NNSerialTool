@@ -39,9 +39,8 @@ const addrOpen = ref(false);
 const addrWrap = ref<HTMLElement | null>(null);
 const addrPopEl = ref<HTMLElement | null>(null);
 // 浮层 Teleport 到 body 后用 fixed 定位（不占布局，展开不会顶动侧栏）
-const addrPopStyle = ref<{ left: string; width: string; maxHeight: string; top?: string; bottom?: string }>({
-  left: '0px',
-  width: '0px',
+const addrPopStyle = ref<{ left?: string; right?: string; minWidth: string; maxHeight: string; top?: string; bottom?: string }>({
+  minWidth: '0px',
   maxHeight: '180px',
 });
 // 展开时记录触发框位置：只收起"锚点真的移动了"的滚动（消息流自动滚动不收起）
@@ -59,11 +58,15 @@ const toggleAddr = () => {
   const zoom = Number(document.documentElement.style.zoom) || 1;
   const availBelow = (window.innerHeight - rect.bottom - 10) / zoom;
   const availAbove = (rect.top - 10) / zoom;
-  const style: { left: string; width: string; maxHeight: string; top?: string; bottom?: string } = {
-    left: `${rect.left / zoom}px`,
-    width: `${rect.width / zoom}px`,
+  const style: { left?: string; right?: string; minWidth: string; maxHeight: string; top?: string; bottom?: string } = {
+    minWidth: `${rect.width / zoom}px`,
     maxHeight: '180px',
   };
+  if (rect.right + 160 > window.innerWidth) {
+    style.right = `${(window.innerWidth - rect.right) / zoom}px`;
+  } else {
+    style.left = `${rect.left / zoom}px`;
+  }
   if (availBelow >= 96 || availBelow >= availAbove) {
     style.top = `${rect.bottom / zoom}px`;
     style.maxHeight = `${Math.max(96, Math.min(180, availBelow))}px`;
@@ -272,10 +275,9 @@ const onCustomBaudBlur = () => {
 
 .addr-pop {
   position: fixed;
-  /* 上边框完全贴合输入框下边框（间距 0） */
-  top: 100%;
-  left: 0;
-  right: 0;
+  /* 上边框完全贴合输入框下边框（间距 0）；宽度 max-content 撑开 + min-width 不小于输入框 */
+  width: max-content;
+  max-width: 320px;
   z-index: 70;
   padding: 4px;
   background: #ffffff;

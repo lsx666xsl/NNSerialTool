@@ -110,7 +110,7 @@ const newlineOptions = [
               自动换行
               <SelfSelect v-model="sendSettings.newline" :full="false" :options="newlineOptions" />
             </label>
-            <!-- 自动发送组：矩形框包成一个整体 -->
+            <!-- 自动发送组：与自动换行同栏 -->
             <label class="auto-send-group" title="按设定的间隔自动发送发送框中的内容（作用于开启时的会话）">
               <input type="checkbox" v-model="sendSettings.loopSend" />
               自动发送
@@ -301,7 +301,9 @@ const newlineOptions = [
 }
 
 .send-resize {
-  height: 7px;
+  height: 14px;
+  /* 命中区比视觉条更高更宽，方便鼠标抓取 */
+  margin: 0 -6px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -329,7 +331,7 @@ const newlineOptions = [
   line-height: 1.5;
 }
 
-/* 自动发送组：矩形边框包成一个整体，与自动换行同栏 */
+/* 自动发送组：与自动换行同栏，无边框（同属发送参数区） */
 .auto-send-group {
   display: inline-flex;
   align-items: center;
@@ -337,9 +339,6 @@ const newlineOptions = [
   font-size: 13px;
   color: #3b414b;
   white-space: nowrap;
-  padding: 4px 10px;
-  border: 1px solid rgba(23, 26, 33, 0.14);
-  border-radius: 6px;
   cursor: pointer;
 }
 
@@ -451,9 +450,6 @@ const newlineOptions = [
   color: #9da0a8;
 }
 
-.theme-dark .auto-send-group {
-  border-color: rgba(255, 255, 255, 0.14);
-}
 
 .theme-dark .send-resize span {
   background: rgba(255, 255, 255, 0.18);

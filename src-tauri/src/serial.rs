@@ -307,6 +307,37 @@ pub async fn serial_close(port: String, state: tauri::State<'_, SharedState>) ->
 }
 
 /*
+*   描述：同步版全量关闭（供应用退出事件调用——退出路径不能走异步任务）
+*/
+pub fn close_all_sync(state: &SharedState) {
+    if let Ok(mut s) = state.lock() {
+        for (_, handle) in s.ports.drain() {
+            handle.stop_flag.store(true, Ordering::SeqCst);
+        }
+        for (_, task) in s.auto_sends.drain() {
+            task.store(true, Ordering::SeqCst);
+        }
+    }
+}
+
+/*
+*   描述：关闭全部串口连接并停止全部自动发送任务
+*         （前端页面重载/HMR 后会话列表清空，后端残留的串口句柄若不释放会一直占用端口）
+*   调用方法：前端初始化（initApp）时调用一次，保证后端状态与界面一致
+*/
+#[tauri::command]
+pub async fn serial_close_all(state: tauri::State<'_, SharedState>) -> Result<usize, String> {
+    let state = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let count = state.lock().map_err(|e| e.to_string())?.ports.len();
+        close_all_sync(&state);
+        Ok(count)
+    })
+    .await
+    .map_err(|e| format!("任务执行失败: {}", e))?
+}
+
+/*
 *   描述：发送数据到串口（async：WriteFile 在驱动层可能阻塞数十毫秒，这是“发送卡一下”的元凶）
 */
 #[tauri::command]
