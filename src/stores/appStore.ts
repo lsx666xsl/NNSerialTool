@@ -255,19 +255,15 @@ export const notify = (text: string) => {
 };
 
 // ---------- 转发规则 ----------
-// 独立转发界面维护：来源会话收到的数据原样发往目标会话（仅限连接列表中的会话）。
-export const forwardRules = ref<ForwardRule[]>([]);
+// 单规则模型：一次只允许一条转发路径，再次"启动"直接覆盖。
+const forwardRules = ref<ForwardRule[]>([]);
 
-export const addForwardRule = (fromId: string, toId: string) => {
+export const startForward = (fromId: string, toId: string) => {
   if (!fromId || !toId || fromId === toId) return;
-  const exists = forwardRules.value.some((r) => r.fromId === fromId && r.toId === toId);
-  if (exists) return;
-  forwardRules.value.push({ id: `fr-${Date.now()}-${Math.random()}`, fromId, toId });
-};
-
-export const removeForwardRule = (id: string) => {
-  const index = forwardRules.value.findIndex((r) => r.id === id);
-  if (index >= 0) forwardRules.value.splice(index, 1);
+  forwardRules.value = [{ id: `fr-${Date.now()}`, fromId, toId }];
+  const from = sessions.value.find((s) => s.id === fromId)?.name ?? fromId;
+  const to = sessions.value.find((s) => s.id === toId)?.name ?? toId;
+  notify(`转发已启动：${from} → ${to}`);
 };
 
 // 转发记录：每条转发的时间、路径与数据内容（转发视图下方实时列表），上限 500 条

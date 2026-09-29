@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import SelfSelect from './SelfSelect.vue';
-import { addForwardRule, clearForwardLogs, forwardLogs, forwardRules, removeForwardRule, sessions } from '../stores/appStore';
+import { clearForwardLogs, forwardLogs, sessions, startForward } from '../stores/appStore';
 
-// 转发视图：配置"从哪个会话转发到哪个会话"（仅限连接列表中已有的会话）。
-// 规则命中时，来源会话收到的数据原样发往目标会话（目标须已连接）；
+// 转发视图：单规则模型——选好"从哪个会话到哪个会话"，点启动即生效（再次启动覆盖）。
 // 下方实时记录每条转发的时间、路径与内容。
 const fromId = ref('');
 const toId = ref('');
@@ -13,11 +12,9 @@ const sessionOptions = computed(() => sessions.value.map((s) => ({ value: s.id, 
 const fromOptions = computed(() => [{ value: '', label: '选择来源会话' }, ...sessionOptions.value]);
 const toOptions = computed(() => [{ value: '', label: '选择目标会话' }, ...sessionOptions.value]);
 
-const sessionName = (id: string) => sessions.value.find((s) => s.id === id)?.name ?? '（已删除）';
-
-const addRule = () => {
+const start = () => {
   if (!fromId.value || !toId.value) return;
-  addForwardRule(fromId.value, toId.value);
+  startForward(fromId.value, toId.value);
 };
 </script>
 
@@ -33,25 +30,11 @@ const addRule = () => {
         到
         <SelfSelect v-model="toId" :full="false" :options="toOptions" />
       </label>
-      <button class="primary-btn" :disabled="!fromId || !toId || fromId === toId" @click="addRule">添加</button>
-    </div>
-    <p class="forward-hint">规则命中后，来源会话收到的数据会原样发往目标会话（目标需已连接）；转发不会再次引发转发，天然无环路。</p>
-
-    <div class="rule-list">
-      <div v-if="forwardRules.length === 0" class="empty-box">暂无转发规则，请在上方选择来源与目标会话后添加。</div>
-      <div v-for="rule in forwardRules" :key="rule.id" class="rule-line">
-        <span class="rule-from">{{ sessionName(rule.fromId) }}</span>
-        <span class="rule-arrow">→</span>
-        <span class="rule-to">{{ sessionName(rule.toId) }}</span>
-        <button class="rule-del" title="删除规则" @click="removeForwardRule(rule.id)">删除</button>
-      </div>
+      <button class="primary-btn" :disabled="!fromId || !toId || fromId === toId" @click="start">启动</button>
+      <button class="ghost-btn log-clear" title="清空下方转发记录" @click="clearForwardLogs">清空</button>
     </div>
 
     <!-- 转发记录：每条转发的时间、路径与数据内容 -->
-    <div class="log-head">
-      <span class="log-title">转发记录</span>
-      <button class="ghost-btn log-clear" @click="clearForwardLogs">清空</button>
-    </div>
     <div class="forward-log">
       <div v-if="forwardLogs.length === 0" class="empty-box">暂无转发记录，转发发生时将在此实时显示。</div>
       <div v-for="entry in forwardLogs" :key="entry.id" class="log-line">
@@ -93,73 +76,12 @@ const addRule = () => {
   transform: translateY(2px);
 }
 
-.forward-hint {
-  margin: 0;
-  font-size: 12px;
-  color: #8a9099;
-}
-
-.rule-list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.rule-line {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
-  border: 1px solid rgba(23, 26, 33, 0.08);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.rule-from {
-  color: #2e8b45;
-  font-weight: 600;
-}
-
-.rule-to {
-  color: #2b6cb0;
-  font-weight: 600;
-}
-
-.rule-arrow {
-  color: #8a9099;
-}
-
-.rule-del {
+/* 清空按钮：推到行最右端 */
+.log-clear {
   margin-left: auto;
-  padding: 4px 12px;
-  font-size: 12px;
-  color: #c74541;
-  background: rgba(199, 69, 65, 0.08);
-  box-shadow: inset 0 0 0 1px rgba(199, 69, 65, 0.2);
 }
 
 /* 转发记录：时间 + 路径 + 数据内容，等宽字体滚动列表 */
-.log-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-}
-
-.log-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #3b414b;
-}
-
-.log-clear {
-  padding: 4px 12px;
-  font-size: 12px;
-}
-
 .forward-log {
   flex: 1;
   min-height: 160px;
@@ -213,28 +135,6 @@ const addRule = () => {
 /* 深色主题 */
 .theme-dark .forward-bar label {
   color: #9da0a8;
-}
-
-.theme-dark .rule-line {
-  background: rgba(255, 255, 255, 0.04);
-  border-color: rgba(255, 255, 255, 0.09);
-}
-
-.theme-dark .rule-from {
-  color: #6bc97e;
-}
-
-.theme-dark .rule-to {
-  color: #6ca7e8;
-}
-
-.theme-dark .rule-del {
-  color: #e8807c;
-  background: rgba(232, 128, 124, 0.12);
-}
-
-.theme-dark .log-title {
-  color: #c6c9cf;
 }
 
 .theme-dark .forward-log {
