@@ -270,6 +270,13 @@ export const removeForwardRule = (id: string) => {
   if (index >= 0) forwardRules.value.splice(index, 1);
 };
 
+// 转发记录：每条转发的时间、路径与数据内容（转发视图下方实时列表），上限 500 条
+export const forwardLogs = ref<Array<{ id: string; time: string; fromName: string; toName: string; text: string }>>([]);
+
+export const clearForwardLogs = () => {
+  forwardLogs.value = [];
+};
+
 // ---------- 选项刷新 ----------
 export const refreshPorts = async () => {
   try {
@@ -320,6 +327,11 @@ export const createSession = () => {
   if (!canCreateSession.value) return;
 
   const isSerial = newSessionType.value === 'serial';
+  // 串口不重复创建：同一端口已有会话时直接提示（端口是独占资源，开两个会话也没有意义）
+  if (isSerial && sessions.value.some((item) => item.type === 'serial' && item.config.port === newSessionConfig.value.port)) {
+    notify(`${newSessionConfig.value.port} 已存在连接会话，不能重复创建`);
+    return;
+  }
   // 命名：仅在列表里已存在"同名"会话时才追加 #2/#3 递增后缀；
   // 删除旧会话后名字会被回收复用（按名字查重，而非按端口计数）
   const baseName = isSerial
@@ -535,6 +547,16 @@ export const forwardIfConfigured = (session: ConnectionSession, text: string) =>
     const target = sessions.value.find((item) => item.id === rule.toId);
     if (target && target.id !== session.id && target.status === 'connected') {
       void sendData(target, text);
+      forwardLogs.value.push({
+        id: `${Date.now()}-${Math.random()}`,
+        time: nowText(),
+        fromName: session.name,
+        toName: target.name,
+        text,
+      });
+      if (forwardLogs.value.length > 500) {
+        forwardLogs.value.splice(0, forwardLogs.value.length - 500);
+      }
     }
   }
 };
