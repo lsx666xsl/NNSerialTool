@@ -26,16 +26,16 @@ body,
   transition: background 0.24s ease, color 0.24s ease;
 }
 
-/* ===== 自定义标题栏（无边框窗口，反色设计）===== */
+/* ===== 自定义标题栏（无边框窗口）===== */
 .titlebar {
   display: flex;
   align-items: center;
   height: 40px;
   flex-shrink: 0;
   padding-left: 12px;
-  /* 反色：标题栏恒为深色底，与浅色主区形成对比；深色主题下与主区同色衔接 */
-  background: #1e1f22;
-  color: #b9bec7;
+  /* 与主区渐变顶部同色，无缝衔接 */
+  background: #f7f7f9;
+  color: #3b414b;
   user-select: none;
 }
 
@@ -45,15 +45,21 @@ body,
   gap: 8px;
 }
 
+/* 左上角 logo 徽标：蓝色矩形底 + 白色波形 */
 .tb-logo {
-  color: #579df5;
+  width: 22px;
+  height: 22px;
+  padding: 4px;
+  background: linear-gradient(180deg, #3b6fd4, #3563c2);
+  border-radius: 5px;
+  color: #ffffff;
 }
 
 .tb-title {
   font-size: 12.5px;
   font-weight: 600;
   letter-spacing: 0.02em;
-  color: #b9bec7;
+  color: #3b414b;
 }
 
 /* 中部弹性拖动区 */
@@ -67,7 +73,7 @@ body,
   align-self: stretch;
 }
 
-/* 窗口控制按钮：扁平融入标题栏，hover 浮现灰底；关闭 hover 红 */
+/* 窗口控制按钮：扁平融入标题栏；图标用深色保证可读，hover 浮现灰底；关闭 hover 红 */
 .tb-btn {
   width: 44px;
   height: 40px;
@@ -77,19 +83,38 @@ body,
   justify-content: center;
   border-radius: 0;
   background: transparent;
-  color: #b9bec7;
+  color: #565d66;
   box-shadow: none;
   transform: none;
 }
 
 .tb-btn:hover:not(:disabled) {
   transform: none;
-  background: rgba(255, 255, 255, 0.09);
-  color: #ffffff;
+  background: rgba(23, 26, 33, 0.08);
+  color: #23262b;
 }
 
 .tb-btn.tb-close:hover:not(:disabled) {
   background: #e81123;
+  color: #ffffff;
+}
+
+/* 深色主题：标题栏与主区同色衔接，文字图标提亮 */
+.theme-dark .titlebar {
+  background: #1e1f22;
+  color: #b9bec7;
+}
+
+.theme-dark .tb-title {
+  color: #c6c9cf;
+}
+
+.theme-dark .tb-btn {
+  color: #b3b7be;
+}
+
+.theme-dark .tb-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.09);
   color: #ffffff;
 }
 
