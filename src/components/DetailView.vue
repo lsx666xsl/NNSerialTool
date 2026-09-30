@@ -128,6 +128,14 @@ const newlineOptions = [
               />
               ms
             </label>
+            <button
+              class="tb-toggle toolbar-end"
+              :class="{ on: cmdStripVisible }"
+              title="显示/隐藏右侧拓展命令栏"
+              @click="cmdStripVisible = !cmdStripVisible"
+            >
+              拓展命令
+            </button>
           </div>
 
           <!-- 发送栏：输入框（左）+ 右侧竖排（拓展命令开关在发送按钮上方，底边与输入框对齐） -->
@@ -140,17 +148,7 @@ const newlineOptions = [
               placeholder="输入要发送的数据（Ctrl+回车 发送）"
               @keydown.ctrl.enter.prevent="sendData(activeSession)"
             ></textarea>
-            <div class="send-side">
-              <button
-                class="tb-toggle send-side-toggle"
-                :class="{ on: cmdStripVisible }"
-                title="显示/隐藏右侧拓展命令栏"
-                @click="cmdStripVisible = !cmdStripVisible"
-              >
-                拓展命令
-              </button>
-              <button class="primary-btn send-btn" :disabled="!connected" @click="sendData(activeSession)">发送</button>
-            </div>
+            <button class="primary-btn send-btn" :disabled="!connected" @click="sendData(activeSession)">发送</button>
           </div>
         </div>
 
@@ -288,7 +286,7 @@ const newlineOptions = [
 /* 发送栏：输入框 + 发送按钮 + 拓展命令栏（与发送框等高） */
 .send-row {
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
   min-height: 92px;
   gap: 10px;
   flex-shrink: 0;
@@ -323,25 +321,7 @@ const newlineOptions = [
   flex-shrink: 1;
 }
 
-/* 发送行内的拓展命令开关：与发送按钮等高、紧邻排列 */
-.send-side-toggle {
-  padding: 10px 14px;
-  font-size: 13px;
-  border-radius: 6px;
-  flex-shrink: 0;
-}
 
-.send-side-toggle.on {
-  background: rgba(59, 111, 212, 0.12);
-  color: #3563c2;
-  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.3);
-}
-
-.send-side-toggle:not(.on) {
-  background: rgba(23, 26, 33, 0.05);
-  color: #6b7280;
-  box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
-}
 
 /* 工具带顶部拖拽热区：透明覆盖在虚线上，按住上下拖调整发送框高度 */
 .toolbar-drag {
@@ -358,31 +338,8 @@ const newlineOptions = [
   position: relative;
 }
 
-/* 发送行右侧竖排：拓展命令开关叠在发送按钮上方 */
-.send-side {
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-  gap: 8px;
-  flex-shrink: 0;
-}
-
-.send-side .send-side-toggle {
-  padding: 8px 14px;
-  font-size: 13px;
-  border-radius: 6px;
-}
-
-.send-side .send-side-toggle.on {
-  background: rgba(59, 111, 212, 0.12);
-  color: #3563c2;
-  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.3);
-}
-
-.send-side .send-side-toggle:not(.on) {
-  background: rgba(23, 26, 33, 0.05);
-  color: #6b7280;
-  box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
+.toolbar-end {
+  margin-left: auto;
 }
 
 .send-btn {
