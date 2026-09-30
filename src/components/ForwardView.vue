@@ -33,14 +33,14 @@ const onToggle = () => {
 <template>
   <section class="content-card forward-view">
     <div class="forward-bar">
-      <label>
+      <label :class="{ locked: !!activeRule }" :title="activeRule ? ruleLabel : '选择来源会话'">
         从
-        <SelfSelect v-model="fromId" :full="false" :options="fromOptions" />
+        <SelfSelect v-model="fromId" :full="false" :options="fromOptions" :disabled="!!activeRule" />
       </label>
       <span class="arrow">→</span>
-      <label>
+      <label :class="{ locked: !!activeRule }" :title="activeRule ? ruleLabel : '选择目标会话'">
         到
-        <SelfSelect v-model="toId" :full="false" :options="toOptions" />
+        <SelfSelect v-model="toId" :full="false" :options="toOptions" :disabled="!!activeRule" />
       </label>
       <button
         class="primary-btn"
@@ -54,6 +54,8 @@ const onToggle = () => {
       <span v-if="activeRule" class="rule-status">{{ ruleLabel }}</span>
       <button class="ghost-btn log-clear" title="清空下方转发记录" @click="clearForwardLogs">清空</button>
     </div>
+    <!-- 转发开启中的提示框：下拉已锁定，需先关闭转发 -->
+    <p v-if="activeRule" class="lock-hint">请先关闭转发再切换转发源或目标</p>
 
     <!-- 转发记录：每条转发的时间、路径与数据内容 -->
     <div class="forward-log">
@@ -100,6 +102,17 @@ const onToggle = () => {
 /* 关闭转发状态：按钮转红以示停止语义 */
 .stop-btn {
   background: linear-gradient(180deg, #c74541, #b93b37);
+}
+
+/* 转发开启中的提示框：下拉已锁定，需先关闭转发 */
+.lock-hint {
+  margin: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: #b7791f;
+  background: rgba(183, 121, 31, 0.08);
+  border: 1px dashed rgba(183, 121, 31, 0.4);
+  border-radius: 6px;
 }
 
 .rule-status {

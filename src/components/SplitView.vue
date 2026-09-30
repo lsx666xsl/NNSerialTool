@@ -23,6 +23,7 @@ import { sendData, splitSessions } from '../stores/appStore';
           :show-timestamp="session.showTimestamp ?? true"
           :filter-rx="session.filterRx ?? true"
           :filter-tx="session.filterTx ?? true"
+          :hex-mode="session.hexMode ?? false"
         />
         <div class="split-send">
           <input v-model="session.sendText" placeholder="发送数据" @keyup.enter="sendData(session)" />

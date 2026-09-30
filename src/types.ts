@@ -33,11 +33,13 @@ export type NetConfig = {
 };
 
 // 会话内的一条收发记录：流式渲染的最小单元，time 只在需要时展示。
+// raw 为原始字节（十六进制显示模式用；发送侧为实际写出的 UTF-8 字节）
 export type SessionMessage = {
   id: string;
   time: string;
   direction: MessageDirection;
   text: string;
+  raw?: number[];
 };
 
 // 一个 ConnectionSession 就是一条独立连接，也就是界面左侧列表中的一项。
@@ -64,6 +66,8 @@ export type ConnectionSession = {
   showTimestamp?: boolean;
   filterRx?: boolean;
   filterTx?: boolean;
+  // 十六进制显示模式：亮起后收发数据以 HEX 字节流显示（默认字符串）
+  hexMode?: boolean;
 };
 
 // 全局消息总线用于把所有连接的收发记录放到同一个时间线里。

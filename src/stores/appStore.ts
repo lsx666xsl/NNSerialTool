@@ -219,12 +219,13 @@ const appendGlobalMessage = (session: ConnectionSession, direction: MessageDirec
   }
 };
 
-const appendSessionMessage = (session: ConnectionSession, direction: MessageDirection, text: string) => {
+const appendSessionMessage = (session: ConnectionSession, direction: MessageDirection, text: string, bytes?: number[]) => {
   const message: SessionMessage = {
     id: `${Date.now()}-${Math.random()}`,
     time: nowText(),
     direction,
     text,
+    raw: bytes,
   };
   session.messages.push(message);
 
@@ -591,10 +592,11 @@ export const sendData = async (session: ConnectionSession, textOverride?: string
       });
     }
     appendGlobalMessage(session, 'TX', raw);
-    appendSessionMessage(session, 'TX', raw);
+    // 字节统计按实际写出的 UTF-8 长度计（含换行符）；原始字节随消息保留供十六进制显示
+    const txBytes = Array.from(new TextEncoder().encode(raw + newlineSeq.value));
+    appendSessionMessage(session, 'TX', raw, txBytes);
     session.messageCount += 1;
-    // 字节统计按实际写出的 UTF-8 长度计（含换行符）
-    session.txBytes += new TextEncoder().encode(raw + newlineSeq.value).length;
+    session.txBytes += txBytes.length;
   } catch (e) {
     session.statusMsg = `发送失败: ${e}`;
     notify(session.statusMsg);
@@ -732,51 +734,53 @@ const onSystemThemeChange = (e: MediaQueryListEvent) => {
 // 高波特率下 RX 事件频率可达每秒数百次，逐条渲染会造成卡顿；
 // 按会话累积文本，16ms（一帧）批量刷入消息流——显示粒度极限，转发也随之整批进行。
 // raw 为原始数据（用于转发透传），prefix 为显示前缀（如 TCP 来源地址），二者分离保证转发不带显示标记。
-const pendingRx = new Map<string, { session: ConnectionSession; raw: string; prefix: string }>();
+const pendingRx = new Map<string, { session: ConnectionSession; raw: string; prefix: string; bytes?: number[] }>();
 let rxFlushTimer: ReturnType<typeof setTimeout> | undefined;
 
 const flushPendingRx = () => {
   rxFlushTimer = undefined;
-  for (const { session, raw, prefix } of pendingRx.values()) {
+  for (const { session, raw, prefix, bytes } of pendingRx.values()) {
     const display = prefix + raw;
     session.messageCount += 1;
     appendGlobalMessage(session, 'RX', display);
-    appendSessionMessage(session, 'RX', display);
+    appendSessionMessage(session, 'RX', display, bytes);
     forwardIfConfigured(session, raw);
   }
   pendingRx.clear();
 };
 
-const enqueueRx = (session: ConnectionSession, raw: string, prefix = '') => {
+const enqueueRx = (session: ConnectionSession, raw: string, prefix = '', bytes?: number[]) => {
   const item = pendingRx.get(session.id);
   if (item) {
     item.raw += raw;
+    if (bytes) item.bytes = (item.bytes ?? []).concat(bytes);
   } else {
-    pendingRx.set(session.id, { session, raw, prefix });
+    pendingRx.set(session.id, { session, raw, prefix, bytes: bytes ? [...bytes] : undefined });
   }
   if (!rxFlushTimer) rxFlushTimer = setTimeout(flushPendingRx, 16);
 };
 
 // TX 合帧：自动发送由 Rust 线程直接写出（绕过前端 sendData），通过 auto-sent 事件回填 TX 记录
-const pendingTx = new Map<string, { session: ConnectionSession; raw: string }>();
+const pendingTx = new Map<string, { session: ConnectionSession; raw: string; bytes?: number[] }>();
 let txFlushTimer: ReturnType<typeof setTimeout> | undefined;
 
 const flushPendingTx = () => {
   txFlushTimer = undefined;
-  for (const { session, raw } of pendingTx.values()) {
+  for (const { session, raw, bytes } of pendingTx.values()) {
     session.messageCount += 1;
     appendGlobalMessage(session, 'TX', raw);
-    appendSessionMessage(session, 'TX', raw);
+    appendSessionMessage(session, 'TX', raw, bytes);
   }
   pendingTx.clear();
 };
 
-const enqueueTx = (session: ConnectionSession, raw: string) => {
+const enqueueTx = (session: ConnectionSession, raw: string, bytes?: number[]) => {
   const item = pendingTx.get(session.id);
   if (item) {
     item.raw += raw;
+    if (bytes) item.bytes = (item.bytes ?? []).concat(bytes);
   } else {
-    pendingTx.set(session.id, { session, raw });
+    pendingTx.set(session.id, { session, raw, bytes: bytes ? [...bytes] : undefined });
   }
   if (!txFlushTimer) txFlushTimer = setTimeout(flushPendingTx, 16);
 };
@@ -817,7 +821,7 @@ export const initApp = async () => {
 
     session.rxBytes += event.payload.data.length;
     const text = decodeBytes(event.payload.data);
-    enqueueRx(session, text);
+    enqueueRx(session, text, '', event.payload.data);
   });
 
   unlistenSerialDisconnect = await listen<string>('serial-disconnect', (event) => {
@@ -845,7 +849,7 @@ export const initApp = async () => {
     if (!session) return;
 
     session.txBytes += event.payload.data.length;
-    enqueueTx(session, decodeBytes(event.payload.data));
+    enqueueTx(session, decodeBytes(event.payload.data), event.payload.data);
   });
 
   // auto-send-stopped：自动发送线程写失败退出时上报——弹回开关并提示原因
@@ -872,7 +876,7 @@ export const initApp = async () => {
     session.rxBytes += event.payload.data.length;
     const text = decodeBytes(event.payload.data);
     const prefix = event.payload.from ? `[${event.payload.from}] ` : '';
-    enqueueRx(session, text, prefix);
+    enqueueRx(session, text, prefix, event.payload.data);
   });
 
   unlistenNetDisconnect = await listen<string>('net-disconnect', (event) => {

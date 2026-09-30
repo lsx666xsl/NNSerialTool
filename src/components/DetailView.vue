@@ -90,6 +90,7 @@ const newlineOptions = [
             :show-timestamp="activeSession.showTimestamp ?? true"
             :filter-rx="activeSession.filterRx ?? true"
             :filter-tx="activeSession.filterTx ?? true"
+            :hex-mode="activeSession.hexMode ?? false"
           />
 
           <!-- 工具带：顶部虚线即拖拽热区（按住上下拖调整发送框高度，与接收框互斥） -->

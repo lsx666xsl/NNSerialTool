@@ -9,3 +9,7 @@ export const todayText = () => {
 };
 
 export const decodeBytes = (data: number[]) => new TextDecoder().decode(new Uint8Array(data));
+
+// 字节数组转十六进制字符串（大写两位、空格分隔），十六进制显示模式用
+export const bytesToHex = (data: number[]) =>
+  data.map((b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');

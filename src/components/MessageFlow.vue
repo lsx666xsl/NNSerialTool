@@ -2,6 +2,7 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { SessionMessage } from '../types';
 import { autoScroll, fontSize } from '../stores/appStore';
+import { bytesToHex } from '../utils/format';
 
 // 流式消息区：详情视图与分屏视图共用。
 // 时间戳与 RX/TX 开关只控制"前缀标签"的显隐——数据本身始终显示。
@@ -13,6 +14,7 @@ const props = defineProps<{
   showTimestamp: boolean;
   filterRx: boolean;
   filterTx: boolean;
+  hexMode: boolean;
 }>();
 
 // 全量显示（不过滤数据）：RX/TX/时间戳开关只作用于前缀标签。
@@ -100,7 +102,7 @@ onUnmounted(() => resizeObserver?.disconnect());
       <div
         v-for="message in visibleMessages"
         :key="message.id"
-        v-memo="[showTimestamp, filterRx, filterTx]"
+        v-memo="[showTimestamp, filterRx, filterTx, hexMode]"
         class="flow-line"
         :class="message.direction.toLowerCase()"
       >
@@ -108,7 +110,8 @@ onUnmounted(() => resizeObserver?.disconnect());
           <span v-if="showTimestamp && message.time" class="flow-time">{{ message.time }}</span>
           <span v-if="showDirTag(message.direction)" class="flow-dir">{{ message.direction }}</span>
         </div>
-        <div class="flow-text">{{ message.text }}</div>
+        <!-- 十六进制模式：显示原始字节 HEX 流（无原始字节的旧消息回退文本） -->
+        <div class="flow-text">{{ hexMode && message.raw ? bytesToHex(message.raw) : message.text }}</div>
       </div>
     </div>
     <button
