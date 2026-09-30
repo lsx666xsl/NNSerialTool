@@ -413,12 +413,11 @@ export const createSession = () => {
 };
 
 export const removeSession = (session: ConnectionSession) => {
+  // X 仅在连接打开后显示（用户约定），语义为"一键关停并移除"：
+  // 连接中点击先走关闭流程（释放端口/停止自动发送），再从列表移除
   if (session.status === 'connected') {
-    session.statusMsg = '请先关闭连接，再删除会话';
-    notify(session.statusMsg);
-    return;
+    closeConnection(session);
   }
-
   sessions.value = sessions.value.filter((item) => item.id !== session.id);
   selectedSessionIds.value = selectedSessionIds.value.filter((id) => id !== session.id);
 

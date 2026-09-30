@@ -16,8 +16,8 @@ import { sessionSubLabel } from '../utils/session';
 // 连接列表：所有会话的卡片，四行布局：
 // ① 状态点（即连接开关）+ 名称 + 删除 X（仅连接打开后显示）
 // ② 连接路径（ip:port->ip:port / 串口 · 波特率）
-// ③ 收发字节统计（Tx/Rx，清空消息不清零）
-// ④ 开关行：分屏 / 总览 / 时间戳 / RX / TX + 消息计数
+// ③ 收发字节统计兼显示开关（点击 Tx/Rx 矩形按钮切换方向数据是否显示）
+// ④ 开关行：分屏 / 总览 / 时间戳 + 消息计数
 // 标题行右侧 = 一键打开/关闭列表中的全部连接。
 
 // 全部已连接时按钮变为"全部关闭"，否则为"全部打开"
@@ -82,13 +82,27 @@ const toggleAllSessions = () => {
         <!-- 行2：连接路径 ip:port->ip:port（串口为端口与波特率） -->
         <p class="session-sub">{{ sessionSubLabel(session) }}</p>
 
-        <!-- 行3：收发字节统计（清空消息不清零） -->
+        <!-- 行3：收发字节统计，按钮即开关——点击切换 TX/RX 数据是否显示（清空消息不清零计数） -->
         <div class="byte-line">
-          <span class="tx">Tx: {{ session.txBytes }} B</span>
-          <span class="rx">Rx: {{ session.rxBytes }} B</span>
+          <button
+            class="byte-toggle tx"
+            :class="{ off: !(session.filterTx ?? true) }"
+            title="TX 发送数据显示开关"
+            @click.stop="session.filterTx = !(session.filterTx ?? true)"
+          >
+            Tx: {{ session.txBytes }} B
+          </button>
+          <button
+            class="byte-toggle rx"
+            :class="{ off: !(session.filterRx ?? true) }"
+            title="RX 接收数据显示开关"
+            @click.stop="session.filterRx = !(session.filterRx ?? true)"
+          >
+            Rx: {{ session.rxBytes }} B
+          </button>
         </div>
 
-        <!-- 行4：开关行 -->
+        <!-- 行4：分屏 / 总览 / 时间戳开关 + 消息计数 -->
         <div class="session-actions">
           <span class="toggles">
             <button
@@ -114,22 +128,6 @@ const toggleAllSessions = () => {
               @click.stop="session.showTimestamp = !(session.showTimestamp ?? true)"
             >
               时间戳
-            </button>
-            <button
-              class="mini-toggle"
-              :class="{ on: session.filterRx ?? true }"
-              title="显示 RX 接收数据"
-              @click.stop="session.filterRx = !(session.filterRx ?? true)"
-            >
-              RX
-            </button>
-            <button
-              class="mini-toggle"
-              :class="{ on: session.filterTx ?? true }"
-              title="显示 TX 发送数据"
-              @click.stop="session.filterTx = !(session.filterTx ?? true)"
-            >
-              TX
             </button>
           </span>
           <span class="msg-count">{{ session.messageCount }} 条</span>
@@ -284,21 +282,37 @@ const toggleAllSessions = () => {
   box-shadow: 0 0 6px rgba(212, 83, 79, 0.45);
 }
 
-/* 行3：收发字节统计（Tx/Rx，等宽数字防跳动） */
+/* 行3：收发字节统计兼显示开关（矩形按钮；关闭态变灰） */
 .byte-line {
   display: flex;
-  gap: 14px;
+  gap: 8px;
   margin: 6px 0 0 20px;
+}
+
+.byte-toggle {
+  padding: 2px 8px;
   font-size: 12px;
   font-variant-numeric: tabular-nums;
+  border-radius: 4px;
 }
 
-.byte-line .tx {
+.byte-toggle.tx {
+  background: rgba(43, 108, 176, 0.08);
   color: #2b6cb0;
+  box-shadow: inset 0 0 0 1px rgba(43, 108, 176, 0.3);
 }
 
-.byte-line .rx {
+.byte-toggle.rx {
+  background: rgba(46, 139, 69, 0.08);
   color: #2e8b45;
+  box-shadow: inset 0 0 0 1px rgba(46, 139, 69, 0.3);
+}
+
+.byte-toggle.off {
+  background: rgba(23, 26, 33, 0.04);
+  color: #b6bbc3;
+  box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
+  text-decoration: line-through;
 }
 
 /* 行4：开关行 */
@@ -382,12 +396,22 @@ const toggleAllSessions = () => {
   box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.4);
 }
 
-.theme-dark .byte-line .tx {
+.theme-dark .byte-toggle.tx {
+  background: rgba(108, 167, 232, 0.12);
   color: #6ca7e8;
+  box-shadow: inset 0 0 0 1px rgba(108, 167, 232, 0.35);
 }
 
-.theme-dark .byte-line .rx {
+.theme-dark .byte-toggle.rx {
+  background: rgba(107, 201, 126, 0.12);
   color: #6bc97e;
+  box-shadow: inset 0 0 0 1px rgba(107, 201, 126, 0.35);
+}
+
+.theme-dark .byte-toggle.off {
+  background: rgba(255, 255, 255, 0.04);
+  color: #6f737a;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
 }
 
 .theme-dark .list-toggle {

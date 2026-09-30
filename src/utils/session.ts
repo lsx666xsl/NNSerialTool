@@ -12,7 +12,7 @@ export const netSessionName = (type: ConnectionType, net: NetConfig) => {
 // 会话卡片的连接路径描述（标题行下一行，格式 ip:port->ip:port）：
 // UDP/双方均已知的 TCP 客户端显示完整路径；TCP 服务端显示监听地址；串口显示端口与波特率
 export const sessionSubLabel = (session: ConnectionSession) => {
-  if (session.type === 'serial') return `串口 · ${session.config.baudRate}bps`;
+  if (session.type === 'serial') return `波特率: ${session.config.baudRate}bps`;
   const net = session.net;
   if (!net) return '';
   const local = `${net.localHost || '0.0.0.0'}:${net.localPort || 0}`;
