@@ -1,8 +1,20 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted, ref, watchEffect } from 'vue';
 import { appliedTheme, disposeApp, fontFamilyStack, initApp, viewMode } from './stores/appStore';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import logoUrl from './assets/logo.png';
+
+// ---------- 等比适配窗口 ----------
+// 以 1280x800 为基准，取"宽度比"与"高度比"中较小者作为整体缩放：
+// 缩小窗口 → UI 等比变小（纵向永远放得下）；拉大 → 等比变大，布局比例恒定。
+// 仅保留 0.85 下限，最小窗口下保护可读性。
+const uiScale = ref(1);
+const updateUiScale = () => {
+  uiScale.value = Math.max(0.85, Math.min(window.innerWidth / 1280, window.innerHeight / 800));
+};
+watchEffect(() => {
+  document.documentElement.style.zoom = String(uiScale.value);
+});
 
 // 自定义标题栏的窗口控制（无边框窗口）。浏览器调试环境无 Tauri API，静默降级。
 // getCurrentWindow 在非 Tauri 环境会抛错，需捕获避免白屏
@@ -29,13 +41,15 @@ import ViewSwitch from './components/ViewSwitch.vue';
 
 // App.vue 只负责布局骨架与生命周期装配；
 // 状态与动作集中在 stores/appStore.ts，界面拆分在 components/ 下。
-// 布局自适应窗口：横向拉宽时 UI 尺寸不变（纵向始终完整可见），
-// 多出的宽度自动分配给消息区等弹性区域；窄窗口有 720px 下限与换行/滚动保护。
+// 等比缩放随窗口尺寸实时更新：拉宽/拉高 → UI 等比变大；缩小 → 等比变小。
 onMounted(() => {
+  window.addEventListener('resize', updateUiScale);
+  updateUiScale();
   void initApp();
 });
 
 onUnmounted(() => {
+  window.removeEventListener('resize', updateUiScale);
   disposeApp();
 });
 </script>
