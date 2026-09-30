@@ -192,8 +192,8 @@ const toggleAllSessions = () => {
 .session-card {
   border: 1px solid rgba(23, 26, 33, 0.1);
   border-radius: 8px;
-  padding: 10px 12px;
-  margin-top: 10px;
+  padding: 12px 14px;
+  margin-top: 12px;
   cursor: pointer;
   background: rgba(255, 255, 255, 0.72);
   transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, background 0.18s ease;
@@ -248,8 +248,9 @@ const toggleAllSessions = () => {
 
 /* 行2：连接路径 ip:port->ip:port */
 .session-sub {
-  margin: 5px 0 0 20px;
+  margin: 6px 0 0 20px;
   font-size: 12px;
+  line-height: 1.5;
   color: #6b7280;
   font-variant-numeric: tabular-nums;
   overflow: hidden;
@@ -286,7 +287,7 @@ const toggleAllSessions = () => {
 .byte-line {
   display: flex;
   gap: 8px;
-  margin: 6px 0 0 20px;
+  margin: 8px 0 0 20px;
 }
 
 .byte-toggle {
@@ -321,7 +322,7 @@ const toggleAllSessions = () => {
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 6px;
-  margin-top: 8px;
+  margin-top: 10px;
   font-size: 13px;
   color: #6b7280;
 }

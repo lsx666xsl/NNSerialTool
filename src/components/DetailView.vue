@@ -360,11 +360,11 @@ const newlineOptions = [
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
   background: rgba(23, 26, 33, 0.03);
   border: 1px dashed rgba(23, 26, 33, 0.12);
   border-radius: 8px;
-  padding: 8px;
+  padding: 10px;
 }
 
 .cmd-head {

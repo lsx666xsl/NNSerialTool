@@ -162,6 +162,8 @@ body,
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  /* 标题行与下方内容（表单/列表/空态虚线框）保持呼吸间距 */
+  margin-bottom: 12px;
 }
 
 .content-card {
@@ -361,10 +363,13 @@ button:disabled {
 /* ============ 空态提示 ============ */
 .empty-box {
   padding: 18px;
+  /* 与标题行/相邻卡片保持间距，虚线框不再紧贴文字 */
+  margin-top: 4px;
   border: 1px dashed rgba(23, 26, 33, 0.22);
   border-radius: 8px;
   color: #6b7280;
   text-align: center;
+  line-height: 1.6;
   background: rgba(248, 250, 252, 0.6);
 }
 
