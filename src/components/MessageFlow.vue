@@ -95,12 +95,12 @@ onUnmounted(() => resizeObserver?.disconnect());
     >
       <div v-if="visibleMessages.length === 0" class="flow-empty">等待接收数据</div>
       <!-- 两行式布局：第一行元信息（时间戳/方向），第二行起为数据正文；时间戳与 RX/TX 独立 -->
-      <!-- v-memo：消息内容创建后不变，仅时间戳开关会影响渲染 → 未变化的行整行跳过 diff，
-           高频接收时每帧 diff 成本从 O(全量 2000 行) 降为 O(1)，消除接收卡顿与点击迟钝 -->
+      <!-- v-memo：消息内容创建后不变；影响渲染的开关为 时间戳/方向前缀显隐 →
+           未变化的行整行跳过 diff，高频接收时每帧 diff 成本从 O(全量 2000 行) 降为 O(1) -->
       <div
         v-for="message in visibleMessages"
         :key="message.id"
-        v-memo="[showTimestamp]"
+        v-memo="[showTimestamp, filterRx, filterTx]"
         class="flow-line"
         :class="message.direction.toLowerCase()"
       >

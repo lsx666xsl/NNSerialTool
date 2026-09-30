@@ -13,10 +13,11 @@ import {
   toggleConnection,
   toggleSplitSession,
 } from '../stores/appStore';
+import { sessionSubLabel } from '../utils/session';
 
 // 连接列表：所有会话的卡片，四行布局：
-// ① 状态点（即连接开关）+ 名称 + 删除 X（仅连接打开后显示）
-// ② 连接路径（ip:port->ip:port / 串口 · 波特率）
+// ① 状态点（即连接开关）+ 名称 + 删除 X（始终显示）
+// ② 连接路径（ip:port->ip:port / 波特率矩形框可实时编辑）
 // ③ 收发字节统计兼显示开关（点击 Tx/Rx 矩形按钮切换方向数据是否显示）
 // ④ 开关行：分屏 / 总览 / 时间戳 + 消息计数
 // 标题行右侧 = 一键打开/关闭列表中的全部连接。
@@ -51,27 +52,7 @@ const onBaudChange = async (session: import('../types').ConnectionSession, e: Ev
   }
 };
 
-// 行2 实时编辑：修改网络远程/监听端口（连接中自动断开并按新端口重连）
-const onNetPortChange = async (session: import('../types').ConnectionSession, e: Event) => {
-  const val = Number((e.target as HTMLInputElement).value);
-  if (!session.net || !val || val < 1 || val > 65535 || val === session.net.port) return;
-  session.net.port = val;
-  if (session.status !== 'connected') {
-    notify(`端口已更新为 ${val}（打开连接后生效）`);
-    return;
-  }
-  try {
-    await invoke(session.type === 'serial' ? 'serial_close' : 'net_close', {
-      [session.type === 'serial' ? 'port' : 'key']: session.type === 'serial' ? session.config.port : session.id,
-    });
-  } catch {
-    /* 后端状态由 close_all/断开事件兜底 */
-  }
-  session.status = 'closed';
-  await new Promise((r) => setTimeout(r, 350));
-  await openConnection(session);
-  notify(`端口已更新为 ${val}，已重新连接`);
-};
+
 </script>
 
 <template>
@@ -134,46 +115,7 @@ const onNetPortChange = async (session: import('../types').ConnectionSession, e:
             />
             <span class="path-unit">bps</span>
           </template>
-          <template v-else-if="session.type === 'udp'">
-            <span class="path-label">{{ session.net?.localHost || '0.0.0.0' }}:{{ session.net?.localPort || 0 }}-&gt;</span>
-            <span class="path-label">{{ session.net?.host }}:</span>
-            <input
-              class="path-edit"
-              :value="session.net?.port"
-              type="number"
-              min="1"
-              max="65535"
-              title="修改远程端口（连接中自动重连生效）"
-              @click.stop
-              @change="onNetPortChange(session, $event)"
-            />
-          </template>
-          <template v-else-if="session.type === 'tcp_client'">
-            <span class="path-label">{{ session.net?.host }}:</span>
-            <input
-              class="path-edit"
-              :value="session.net?.port"
-              type="number"
-              min="1"
-              max="65535"
-              title="修改远程端口（连接中自动重连生效）"
-              @click.stop
-              @change="onNetPortChange(session, $event)"
-            />
-          </template>
-          <template v-else>
-            <span class="path-label">Listen:</span>
-            <input
-              class="path-edit"
-              :value="session.net?.port"
-              type="number"
-              min="1"
-              max="65535"
-              title="修改监听端口（连接中自动重连生效）"
-              @click.stop
-              @change="onNetPortChange(session, $event)"
-            />
-          </template>
+          <template v-else>{{ sessionSubLabel(session) }}</template>
         </p>
 
         <!-- 行3：收发字节统计，按钮即开关——点击切换 TX/RX 数据是否显示（清空消息不清零计数） -->

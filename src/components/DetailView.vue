@@ -37,7 +37,7 @@ const onResizeHandleDown = (e: PointerEvent) => {
   const startHeight = sendHeight.value;
   const onMove = (ev: PointerEvent) => {
     // 向上拖 = 增高；限制在 46~340px
-    sendHeight.value = Math.min(340, Math.max(46, startHeight - (ev.clientY - startY)));
+    sendHeight.value = Math.min(340, Math.max(92, startHeight - (ev.clientY - startY)));
   };
   const onUp = () => {
     window.removeEventListener('pointermove', onMove);
@@ -92,8 +92,12 @@ const newlineOptions = [
             :filter-tx="activeSession.filterTx ?? true"
           />
 
-          <!-- 工具带：位于接收框与发送框之间 -->
+          <!-- 工具带：顶部虚线即拖拽热区（按住上下拖调整发送框高度，与接收框互斥） -->
           <div class="panel-toolbar">
+            <div class="toolbar-drag" title="上下拖动调整发送框高度" @pointerdown="onResizeHandleDown"></div>
+
+
+
             <button
               class="tb-toggle"
               :class="{ on: autoScroll }"
@@ -126,35 +130,8 @@ const newlineOptions = [
             </label>
           </div>
 
-          <!-- 工具带：顶部虚线即拖拽热区（按住上下拖调整发送框高度，与接收框互斥） -->
-          <div class="panel-toolbar">
-            <div class="toolbar-drag" title="上下拖动调整发送框高度" @pointerdown="onResizeHandleDown"></div>
-            <button class="ghost-btn" title="把当前消息框全部内容（含时间戳/方向标签）导出为日志文件；保存路径可在设置中配置" @click="exportSessionLog(activeSession)">
-              导出
-            </button>
-            <button class="ghost-btn" @click="clearSessionReceive(activeSession)">清空</button>
-            <label class="toolbar-item" title="发送时附加的换行符">
-              自动换行
-              <SelfSelect v-model="sendSettings.newline" :full="false" :options="newlineOptions" />
-            </label>
-            <!-- 自动发送组：与自动换行同栏 -->
-            <label class="auto-send-group" title="按设定的间隔自动发送发送框中的内容（作用于开启时的会话）">
-              <input type="checkbox" v-model="sendSettings.loopSend" />
-              自动发送
-              <NumberInput
-                v-model="sendSettings.loopInterval"
-                :min="10"
-                :max="600000"
-                :step="10"
-                class="auto-interval"
-                @click.stop
-              />
-              ms
-            </label>
-          </div>
-
-          <!-- 发送栏：输入框（左）+ 右侧竖排（拓展命令开关在发送按钮上方） -->
-          <div class="send-row">
+          <!-- 发送栏：输入框（左）+ 右侧竖排（拓展命令开关在发送按钮上方，底边与输入框对齐） -->
+          <div class="send-row" :style="{ height: sendHeight + 'px' }">
             <textarea
               v-model="activeSession.sendText"
               class="send-input"
@@ -312,6 +289,7 @@ const newlineOptions = [
 .send-row {
   display: flex;
   align-items: stretch;
+  min-height: 92px;
   gap: 10px;
   flex-shrink: 0;
 }
@@ -320,8 +298,9 @@ const newlineOptions = [
 
 .send-input {
   flex: 1;
-  /* 允许在窄窗口下收缩，避免发送栏把面板撑出横向滚动；高度由拖拽手柄控制 */
+  /* 允许在窄窗口下收缩；高度拉伸填满整行，底边与发送按钮对齐 */
   min-width: 0;
+  align-self: stretch;
   resize: none;
   line-height: 1.5;
 }
@@ -383,6 +362,7 @@ const newlineOptions = [
 .send-side {
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
   gap: 8px;
   flex-shrink: 0;
 }
