@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
 import SelfSelect from './SelfSelect.vue';
 import { defaultLogDir, fontFamily, fontSize, logDir, notify, systemFonts, themeMode } from '../stores/appStore';
+import { checking, detailOpen, runUpdateCheck } from '../stores/updateStore';
 
 // 设置菜单：主题三态 + 字号 + 字体 + 日志导出路径（带目录选择器）。
 // 每组均为"标签一行、控件另起一行"的纵向布局；点击菜单外部自动收起。
@@ -28,6 +29,19 @@ const pickLogDir = async () => {
     }
   } catch {
     /* 浏览器调试环境无原生对话框，静默忽略 */
+  }
+};
+
+// 检查更新：手动触发一次检测（与标题栏更新徽标共享检测结果）。
+// 发现新版本 → 弹出中央详细更新卡片；已是最新 → toast 提示。
+const onCheckUpdate = async () => {
+  const result = await runUpdateCheck();
+  if (result === 'update') {
+    detailOpen.value = true;
+  } else if (result === 'latest') {
+    notify('当前已是最新版本');
+  } else {
+    notify('检测更新失败，请检查网络后重试');
   }
 };
 
@@ -78,6 +92,12 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
           <input v-model="logDir" class="log-dir-input" :placeholder="defaultLogDir || '安装目录\\log'" spellcheck="false" />
           <button class="dir-pick" title="选择日志导出目录" @click="pickLogDir">…</button>
         </div>
+      </div>
+      <!-- 检查更新：手动触发一次检测，发现新版本会弹出中央详细更新卡片 -->
+      <div class="settings-group check-group">
+        <button class="check-btn" :disabled="checking" @click="onCheckUpdate">
+          {{ checking ? '检查中…' : '检查更新' }}
+        </button>
       </div>
     </div>
   </div>
@@ -176,6 +196,25 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   color: #3563c2;
 }
 
+/* 检查更新按钮：设置菜单最底部，通栏 */
+.check-group {
+  margin-top: 2px;
+}
+
+.check-btn {
+  width: 100%;
+  padding: 8px 0;
+  font-size: 13px;
+  border-radius: 6px;
+  background: rgba(46, 184, 92, 0.1);
+  color: #28a745;
+  box-shadow: inset 0 0 0 1px rgba(46, 184, 92, 0.3);
+}
+
+.check-btn:hover:not(:disabled) {
+  background: rgba(46, 184, 92, 0.2);
+}
+
 /* 深色主题 */
 .theme-dark .icon-btn {
   background: rgba(255, 255, 255, 0.06);
@@ -209,6 +248,17 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   background: rgba(255, 255, 255, 0.06);
   color: #b3b7be;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.theme-dark .dir-pick:hover {
+  background: rgba(87, 157, 245, 0.16);
+  color: #8fbdf7;
+}
+
+.theme-dark .check-btn {
+  background: rgba(46, 184, 92, 0.14);
+  color: #6bc97e;
+  box-shadow: inset 0 0 0 1px rgba(46, 184, 92, 0.4);
 }
 
 .theme-dark .dir-pick:hover {

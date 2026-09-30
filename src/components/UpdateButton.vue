@@ -1,27 +1,26 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, shallowRef } from 'vue';
+import { computed, ref } from 'vue';
 import { appliedTheme } from '../stores/appStore';
-import { checkUpdate, openReleasePage, type UpdateInfo } from '../utils/update';
-import { check, type Update } from '@tauri-apps/plugin-updater';
+import {
+  changelog,
+  currentVersion,
+  detailOpen,
+  hasUpdate,
+  inplaceUpdate,
+  latestVersion,
+} from '../stores/updateStore';
+import { openReleasePage } from '../utils/update';
 import { relaunch } from '@tauri-apps/plugin-process';
 
 // 版本更新：入口在标题栏应用名右侧（绿色「更新」徽标，仅检测到新版本时显示）。
 // 悬停徽标 → 简易更新日志浮层；点击浮层 → 界面中央的详细更新卡片（右上角可关闭，
 // 日志下方「更新」按钮执行原地下载安装并自动重启）。
-// 浏览器调试环境（无 updater 插件）回退：GitHub API 检测 + 打开下载页。
-// 必须用 shallowRef：ref 会对值做深度响应式代理，插件 Update 类的私有字段
-// 经代理访问会抛 "Cannot read private member from an object whose class did not declare it"
-const inplace = shallowRef<Update | null>(null); // 原地更新模式：插件检测结果
-const info = ref<UpdateInfo | null>(null); // 回退模式：GitHub API 检测结果
-const detailOpen = ref(false);
+// 检测逻辑与"设置-检查更新"共用 updateStore。
+
 const phase = ref<'idle' | 'download' | 'install'>('idle');
 const progress = ref(0);
 const errMsg = ref('');
 
-const hasUpdate = computed(() => !!inplace.value || !!info.value?.hasUpdate);
-const latestVersion = computed(() => inplace.value?.version ?? info.value?.latestVersion ?? '');
-const currentVersion = computed(() => inplace.value?.currentVersion ?? info.value?.currentVersion ?? '');
-const changelog = computed(() => inplace.value?.body ?? info.value?.changelog ?? '');
 const isInstalling = computed(() => phase.value !== 'idle');
 
 // 简易日志：取前 5 行，超出部分提示点开详情
@@ -31,31 +30,17 @@ const simpleLog = computed(() => {
   return lines.length > 5 ? `${head}\n… 点击查看完整更新日志` : head;
 });
 
-// 启动后延迟检测（不阻塞应用启动）
-onMounted(() => {
-  setTimeout(async () => {
-    try {
-      // 插件检测：读取更新端点 latest.json 并做版本比较，无更新返回 null
-      inplace.value = (await check()) ?? null;
-      if (inplace.value) return;
-    } catch {
-      /* 浏览器调试环境 / 插件不可用 → 走 GitHub API 回退 */
-    }
-    info.value = await checkUpdate();
-  }, 3000);
-});
-
-// 详细卡片里的更新按钮：原地下载安装 + 自动重启；回退模式打开下载页
+// 详细卡片里的更新按钮：原地模式走下载安装 + 自动重启；回退模式打开下载页
 const doUpdate = async () => {
   if (isInstalling.value) return;
-  if (inplace.value) {
+  if (inplaceUpdate.value) {
     errMsg.value = '';
     phase.value = 'download';
     progress.value = 0;
     try {
       let total = 0;
       let done = 0;
-      await inplace.value.downloadAndInstall((event) => {
+      await inplaceUpdate.value.downloadAndInstall((event) => {
         if (event.event === 'Started') {
           total = event.data.contentLength ?? 0;
         } else if (event.event === 'Progress') {
@@ -72,10 +57,9 @@ const doUpdate = async () => {
     }
     return;
   }
-  if (!info.value) return;
+  detailOpen.value = false;
   try {
-    await openReleasePage(info.value.releaseUrl);
-    detailOpen.value = false;
+    await openReleasePage(latestVersion.value ? `https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/tag/v${latestVersion.value}` : 'https://github.com/lsx666xsl/Tauri-NNSerialTool/releases');
   } catch {
     /* 打开浏览器失败忽略 */
   }
@@ -116,10 +100,10 @@ const doUpdate = async () => {
         </div>
         <p v-if="errMsg" class="up-card-err">{{ errMsg }}</p>
         <button class="up-card-btn" :disabled="isInstalling" @click="doUpdate">
-          {{ phase === 'download' ? `下载中 ${progress}%` : phase === 'install' ? '安装中…' : inplace ? '更新' : '打开下载页' }}
+          {{ phase === 'download' ? `下载中 ${progress}%` : phase === 'install' ? '安装中…' : inplaceUpdate ? '更新' : '打开下载页' }}
         </button>
         <p class="up-card-note">
-          {{ inplace ? '更新将自动下载并静默安装，完成后软件自动重启进入新版本。' : '将打开下载页面，下载新版本安装包覆盖安装即可完成更新。' }}
+          {{ inplaceUpdate ? '更新将自动下载并静默安装，完成后软件自动重启进入新版本。' : '将打开下载页面，下载新版本安装包覆盖安装即可完成更新。' }}
         </p>
       </div>
     </div>
