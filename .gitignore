@@ -38,3 +38,4 @@ AGENTS.md
 
 # 隔离编译验证目录
 /src-tauri/target-verify/
+.tauri/
