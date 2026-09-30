@@ -13,11 +13,14 @@ import {
 } from '../stores/appStore';
 import { sessionSubLabel } from '../utils/session';
 
-// 连接列表：所有会话的卡片。
-// 标题行 = 状态点（左）+ 名称 + 端口参数 + 删除 X（仅连接打开后）；字节行 = TX/RX 统计；
-// 开关行 = 分屏 / 总览 / Timestamp / RX / TX / 计数；标题栏右侧 = 一键开关全部会话。
+// 连接列表：所有会话的卡片，四行布局：
+// ① 状态点（即连接开关）+ 名称 + 删除 X（仅连接打开后显示）
+// ② 连接路径（ip:port->ip:port / 串口 · 波特率）
+// ③ 收发字节统计（Tx/Rx，清空消息不清零）
+// ④ 开关行：分屏 / 总览 / 时间戳 / RX / TX + 消息计数
+// 标题行右侧 = 一键打开/关闭列表中的全部连接。
 
-// 全部已连接时按钮变为"全部关闭"，否则为"全部开启"
+// 全部已连接时按钮变为"全部关闭"，否则为"全部打开"
 const allConnected = computed(() => sessions.value.length > 0 && connectedCount.value === sessions.value.length);
 
 const toggleAllSessions = () => {
@@ -52,100 +55,91 @@ const toggleAllSessions = () => {
 
     <!-- 内部滚动：会话多时列表区域独立滚动，滚动条随内容溢出自动出现 -->
     <div class="session-scroll">
-    <div
-      v-for="session in sessions"
-      :key="session.id"
-      class="session-card"
-      :class="{ active: session.id === activeSessionId }"
-      @click="activeSessionId = session.id"
-    >
-      <!-- 标题行：状态点即连接开关（绿=已连接点击关闭，红=已关闭点击开启）；
-           右侧为完整参数描述与删除 X（连接打开后才显示 X） -->
-      <div class="session-main">
-        <button
-          class="status-dot"
-          :class="session.status"
-          :title="session.status === 'connected' ? '点击关闭连接' : '点击打开连接'"
-          @click.stop="toggleConnection(session)"
-        ></button>
-        <strong class="session-name">{{ session.name }}</strong>
-        <span class="name-extra">{{ sessionSubLabel(session) }}</span>
-        <button v-if="session.status === 'connected'" class="x-btn" title="删除会话" @click.stop="removeSession(session)">
-          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
-            <line x1="18" y1="6" x2="6" y2="18"></line>
-            <line x1="6" y1="6" x2="18" y2="18"></line>
-          </svg>
-        </button>
-      </div>
+      <div
+        v-for="session in sessions"
+        :key="session.id"
+        class="session-card"
+        :class="{ active: session.id === activeSessionId }"
+        @click="activeSessionId = session.id"
+      >
+        <!-- 行1：状态点即连接开关（绿=已连接点击关闭，红=已关闭点击开启）；X 最靠右 -->
+        <div class="session-main">
+          <button
+            class="status-dot"
+            :class="session.status"
+            :title="session.status === 'connected' ? '点击关闭连接' : '点击打开连接'"
+            @click.stop="toggleConnection(session)"
+          ></button>
+          <strong class="session-name">{{ session.name }}</strong>
+          <button v-if="session.status === 'connected'" class="x-btn" title="删除会话" @click.stop="removeSession(session)">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
 
-      <!-- 收发字节统计：按实际写出/读入的字节数累计（清空消息不清零） -->
-      <div class="byte-line">
-        <span class="tx">TX: {{ session.txBytes }} Byte</span>
-        <span class="rx">RX: {{ session.rxBytes }} Byte</span>
-      </div>
+        <!-- 行2：连接路径 ip:port->ip:port（串口为端口与波特率） -->
+        <p class="session-sub">{{ sessionSubLabel(session) }}</p>
 
-      <div class="session-actions">
-        <!-- 会话级开关：分屏（勾选后进入分屏视图）/ 总览（收发汇入总线时间线，选择性加入）/
-             Timestamp 时间戳 / RX、TX 方向过滤 -->
-        <span class="toggles">
-          <button
-            class="mini-toggle"
-            :class="{ on: selectedSessionIds.includes(session.id) }"
-            title="加入分屏显示"
-            @click.stop="toggleSplitSession(session.id)"
-          >
-            分屏
-          </button>
-          <button
-            class="mini-toggle"
-            :class="{ on: session.inBus ?? false }"
-            title="加入总览：本会话收发汇入总线时间线"
-            @click.stop="session.inBus = !(session.inBus ?? false)"
-          >
-            总览
-          </button>
-          <button
-            class="mini-toggle"
-            :class="{ on: session.showTimestamp ?? true }"
-            title="Timestamp 时间戳显示开关"
-            @click.stop="session.showTimestamp = !(session.showTimestamp ?? true)"
-          >
-            Timestamp
-          </button>
-          <button
-            class="mini-toggle"
-            :class="{ on: session.filterRx ?? true }"
-            title="显示 RX 接收数据"
-            @click.stop="session.filterRx = !(session.filterRx ?? true)"
-          >
-            RX
-          </button>
-          <button
-            class="mini-toggle"
-            :class="{ on: session.filterTx ?? true }"
-            title="显示 TX 发送数据"
-            @click.stop="session.filterTx = !(session.filterTx ?? true)"
-          >
-            TX
-          </button>
-        </span>
-        <span class="msg-count">{{ session.messageCount }} 条</span>
+        <!-- 行3：收发字节统计（清空消息不清零） -->
+        <div class="byte-line">
+          <span class="tx">Tx: {{ session.txBytes }} B</span>
+          <span class="rx">Rx: {{ session.rxBytes }} B</span>
+        </div>
+
+        <!-- 行4：开关行 -->
+        <div class="session-actions">
+          <span class="toggles">
+            <button
+              class="mini-toggle"
+              :class="{ on: selectedSessionIds.includes(session.id) }"
+              title="加入分屏显示"
+              @click.stop="toggleSplitSession(session.id)"
+            >
+              分屏
+            </button>
+            <button
+              class="mini-toggle"
+              :class="{ on: session.inBus ?? false }"
+              title="加入总览：本会话收发汇入总线时间线"
+              @click.stop="session.inBus = !(session.inBus ?? false)"
+            >
+              总览
+            </button>
+            <button
+              class="mini-toggle"
+              :class="{ on: session.showTimestamp ?? true }"
+              title="时间戳显示开关"
+              @click.stop="session.showTimestamp = !(session.showTimestamp ?? true)"
+            >
+              时间戳
+            </button>
+            <button
+              class="mini-toggle"
+              :class="{ on: session.filterRx ?? true }"
+              title="显示 RX 接收数据"
+              @click.stop="session.filterRx = !(session.filterRx ?? true)"
+            >
+              RX
+            </button>
+            <button
+              class="mini-toggle"
+              :class="{ on: session.filterTx ?? true }"
+              title="显示 TX 发送数据"
+              @click.stop="session.filterTx = !(session.filterTx ?? true)"
+            >
+              TX
+            </button>
+          </span>
+          <span class="msg-count">{{ session.messageCount }} 条</span>
+        </div>
       </div>
-    </div>
     </div>
   </section>
 </template>
 
 <style scoped>
-/* 内部滚动容器：面板占满侧栏剩余高度，会话卡片在内部滚动 */
-.session-list {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
 /* 标题行右侧：一键开关 + 计数 */
 .list-side {
   display: flex;
@@ -164,6 +158,15 @@ const toggleAllSessions = () => {
 
 .list-toggle:hover:not(:disabled) {
   background: rgba(59, 111, 212, 0.2);
+}
+
+/* 内部滚动容器：面板占满侧栏剩余高度，会话卡片在内部滚动 */
+.session-list {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .session-scroll {
@@ -191,7 +194,7 @@ const toggleAllSessions = () => {
 .session-card {
   border: 1px solid rgba(23, 26, 33, 0.1);
   border-radius: 8px;
-  padding: 12px;
+  padding: 10px 12px;
   margin-top: 10px;
   cursor: pointer;
   background: rgba(255, 255, 255, 0.72);
@@ -210,7 +213,7 @@ const toggleAllSessions = () => {
   box-shadow: 0 6px 18px rgba(59, 111, 212, 0.12);
 }
 
-/* 标题行：状态点 + 名称 + 右上角删除 X */
+/* 行1：状态点 + 名称 + 删除 X（最靠右） */
 .session-main {
   display: flex;
   align-items: center;
@@ -245,33 +248,15 @@ const toggleAllSessions = () => {
   color: #c74541;
 }
 
-/* 标题行参数描述：完整文本（Local :9000 / 串口 · 9600bps 等），位于 X 左侧 */
-.name-extra {
-  flex-shrink: 0;
-  max-width: 150px;
+/* 行2：连接路径 ip:port->ip:port */
+.session-sub {
+  margin: 5px 0 0 20px;
+  font-size: 12px;
+  color: #6b7280;
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
-  color: #8a9099;
-  font-variant-numeric: tabular-nums;
-}
-
-/* 收发字节统计行：与副标题同缩进，等宽数字避免跳动 */
-.byte-line {
-  display: flex;
-  gap: 14px;
-  margin: 7px 0 0 18px;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-}
-
-.byte-line .tx {
-  color: #2b6cb0;
-}
-
-.byte-line .rx {
-  color: #2e8b45;
 }
 
 /* 状态点即连接开关：hover 放大提示可点击 */
@@ -299,25 +284,37 @@ const toggleAllSessions = () => {
   box-shadow: 0 0 6px rgba(212, 83, 79, 0.45);
 }
 
+/* 行3：收发字节统计（Tx/Rx，等宽数字防跳动） */
+.byte-line {
+  display: flex;
+  gap: 14px;
+  margin: 6px 0 0 20px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.byte-line .tx {
+  color: #2b6cb0;
+}
+
+.byte-line .rx {
+  color: #2e8b45;
+}
+
+/* 行4：开关行 */
 .session-actions {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 4px 8px;
+  gap: 4px 6px;
   margin-top: 8px;
   font-size: 13px;
   color: #6b7280;
 }
 
-
-.msg-count {
-  margin-left: auto;
-  white-space: nowrap;
-}
-
-/* 会话级显示开关：紧凑小按钮，激活态高亮 */
 .toggles {
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
 
@@ -334,6 +331,12 @@ const toggleAllSessions = () => {
   background: rgba(59, 111, 212, 0.12);
   color: #3563c2;
   box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.3);
+}
+
+.msg-count {
+  margin-left: auto;
+  white-space: nowrap;
+  font-size: 12px;
 }
 
 /* 深色主题 */
@@ -353,15 +356,27 @@ const toggleAllSessions = () => {
   box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3);
 }
 
+.theme-dark .session-sub,
 .theme-dark .session-actions {
   color: #9da0a8;
 }
 
-.theme-dark .name-extra {
-  color: #7c828c;
+.theme-dark .x-btn {
+  color: #9da0a8;
 }
 
-.theme-dark .list-toggle {
+.theme-dark .x-btn:hover {
+  background: rgba(232, 128, 124, 0.14);
+  color: #e8807c;
+}
+
+.theme-dark .mini-toggle {
+  background: rgba(255, 255, 255, 0.06);
+  color: #8a9099;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.theme-dark .mini-toggle.on {
   background: rgba(87, 157, 245, 0.16);
   color: #8fbdf7;
   box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.4);
@@ -375,23 +390,7 @@ const toggleAllSessions = () => {
   color: #6bc97e;
 }
 
-.theme-dark .x-btn {
-  color: #9da0a8;
-}
-
-.theme-dark .x-btn:hover {
-  background: rgba(232, 128, 124, 0.14);
-  color: #e8807c;
-}
-
-
-.theme-dark .mini-toggle {
-  background: rgba(255, 255, 255, 0.06);
-  color: #8a9099;
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.1);
-}
-
-.theme-dark .mini-toggle.on {
+.theme-dark .list-toggle {
   background: rgba(87, 157, 245, 0.16);
   color: #8fbdf7;
   box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.4);
