@@ -71,7 +71,7 @@ const toggleAllSessions = () => {
             @click.stop="toggleConnection(session)"
           ></button>
           <strong class="session-name">{{ session.name }}</strong>
-          <button v-if="session.status === 'connected'" class="x-btn" title="删除会话" @click.stop="removeSession(session)">
+          <button class="x-btn" title="删除会话" @click.stop="removeSession(session)">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
               <line x1="18" y1="6" x2="6" y2="18"></line>
               <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -248,7 +248,7 @@ const toggleAllSessions = () => {
 
 /* 行2：连接路径 ip:port->ip:port */
 .session-sub {
-  margin: 6px 0 0 20px;
+  margin: 6px 0 0;
   font-size: 12px;
   line-height: 1.5;
   color: #6b7280;
@@ -287,7 +287,7 @@ const toggleAllSessions = () => {
 .byte-line {
   display: flex;
   gap: 8px;
-  margin: 8px 0 0 20px;
+  margin: 8px 0 0;
 }
 
 .byte-toggle {
@@ -313,7 +313,7 @@ const toggleAllSessions = () => {
   background: rgba(23, 26, 33, 0.04);
   color: #b6bbc3;
   box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
-  text-decoration: line-through;
+  
 }
 
 /* 行4：开关行 */
