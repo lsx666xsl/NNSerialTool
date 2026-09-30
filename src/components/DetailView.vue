@@ -26,7 +26,7 @@ const connected = computed(() => activeSession.value?.status === 'connected');
 // 拓展命令编辑模式：切换后按钮变成可编辑的名称/内容输入行
 const cmdEditing = ref(false);
 // 右侧拓展命令栏显示开关（默认开启）
-const cmdStripVisible = ref(true);
+const cmdStripVisible = ref(false);
 
 // 发送框高度（可拖动上边界调整；拖高发送框时接收框自动收缩，二者互斥共享空间）
 const sendHeight = ref(64);

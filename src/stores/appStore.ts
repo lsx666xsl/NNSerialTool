@@ -258,8 +258,24 @@ export const notify = (text: string) => {
 // 单规则模型：一次只允许一条转发路径，再次"开启"直接覆盖。
 const forwardRules = ref<ForwardRule[]>([]);
 
+// 会话关闭/断开时调用：生效中的转发涉及该会话则自动关闭转发
+const stopForwardIfInvolved = (sessionId: string) => {
+  const rule = forwardRules.value[0];
+  if (rule && (rule.fromId === sessionId || rule.toId === sessionId)) {
+    forwardRules.value = [];
+    const name = sessions.value.find((s) => s.id === sessionId)?.name ?? '';
+    notify(`转发已关闭（${name} 已断开）`);
+  }
+};
+
 export const startForward = (fromId: string, toId: string) => {
   if (!fromId || !toId || fromId === toId) return;
+  // 重复拦截：与当前生效规则完全相同的源/目的不重复开启
+  const current = forwardRules.value[0];
+  if (current && current.fromId === fromId && current.toId === toId) {
+    notify('该转发已开启');
+    return;
+  }
   forwardRules.value = [{ id: `fr-${Date.now()}`, fromId, toId }];
   const from = sessions.value.find((s) => s.id === fromId)?.name ?? fromId;
   const to = sessions.value.find((s) => s.id === toId)?.name ?? toId;
@@ -434,9 +450,7 @@ export const createSession = () => {
   // 局部变量 session 是原始对象，直接改它的 status 不会触发 UI 更新（状态不同步 bug 的根因）
   const stored = sessions.value[sessions.value.length - 1];
   activeSessionId.value = stored.id;
-  if (!selectedSessionIds.value.includes(stored.id)) {
-    selectedSessionIds.value.push(stored.id);
-  }
+  // 分屏默认不加入：需要时在卡片上手动勾选"分屏"
 
   // 添加后默认自动打开连接（用户预期：建好即用）
   void openConnection(stored);
@@ -512,6 +526,8 @@ const closeSerial = async (session: ConnectionSession) => {
     const result = await invoke<string>('serial_close', { port: session.config.port });
     session.status = 'closed';
     session.statusMsg = result;
+    // 会话关闭联动：生效中的转发涉及该会话则自动关闭
+    stopForwardIfInvolved(session.id);
     // 后端已在 close 时停止自动发送——前端勾选同步弹回，避免"重开后自动发送静默失效"
     if (loopSessionId === session.id) {
       sendSettings.value.loopSend = false;
@@ -529,6 +545,8 @@ const closeNet = async (session: ConnectionSession) => {
     const result = await invoke<string>('net_close', { key: session.id });
     session.status = 'closed';
     session.statusMsg = result;
+    // 会话关闭联动：生效中的转发涉及该会话则自动关闭
+    stopForwardIfInvolved(session.id);
     if (loopSessionId === session.id) {
       sendSettings.value.loopSend = false;
     }
@@ -808,6 +826,8 @@ export const initApp = async () => {
 
     session.status = 'closed';
     session.statusMsg = `串口 ${event.payload} 已断开`;
+    // 会话断开联动：生效中的转发涉及该会话则自动关闭
+    stopForwardIfInvolved(session.id);
     // 若自动发送作用于该会话，断开后弹回开关（后端任务已随 close 停止）
     if (loopSessionId === session.id) {
       sendSettings.value.loopSend = false;
@@ -861,6 +881,8 @@ export const initApp = async () => {
 
     session.status = 'closed';
     session.statusMsg = `连接已断开（${session.name}）`;
+    // 会话断开联动：生效中的转发涉及该会话则自动关闭
+    stopForwardIfInvolved(session.id);
     // 若自动发送作用于该会话，断开后弹回开关
     if (loopSessionId === session.id) {
       sendSettings.value.loopSend = false;

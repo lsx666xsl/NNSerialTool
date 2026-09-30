@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
 import {
   activeSessionId,
   closeConnection,
   connectedCount,
+  notify,
   openConnection,
   removeSession,
   sessions,
@@ -11,7 +13,6 @@ import {
   toggleConnection,
   toggleSplitSession,
 } from '../stores/appStore';
-import { sessionSubLabel } from '../utils/session';
 
 // 连接列表：所有会话的卡片，四行布局：
 // ① 状态点（即连接开关）+ 名称 + 删除 X（仅连接打开后显示）
@@ -31,6 +32,45 @@ const toggleAllSessions = () => {
       openConnection(session);
     }
   }
+};
+
+// 行2 实时编辑：修改串口波特率（连接中经 serial_set_baudrate 实时生效，无需重连）
+const onBaudChange = async (session: import('../types').ConnectionSession, e: Event) => {
+  const val = Number((e.target as HTMLInputElement).value);
+  if (!val || val <= 0 || val === session.config.baudRate) return;
+  session.config.baudRate = val;
+  if (session.status !== 'connected') {
+    notify(`波特率已更新为 ${val}bps（打开连接后生效）`);
+    return;
+  }
+  try {
+    const msg = await invoke<string>('serial_set_baudrate', { port: session.config.port, baudRate: val });
+    notify(msg);
+  } catch (err) {
+    notify(`修改波特率失败: ${err}`);
+  }
+};
+
+// 行2 实时编辑：修改网络远程/监听端口（连接中自动断开并按新端口重连）
+const onNetPortChange = async (session: import('../types').ConnectionSession, e: Event) => {
+  const val = Number((e.target as HTMLInputElement).value);
+  if (!session.net || !val || val < 1 || val > 65535 || val === session.net.port) return;
+  session.net.port = val;
+  if (session.status !== 'connected') {
+    notify(`端口已更新为 ${val}（打开连接后生效）`);
+    return;
+  }
+  try {
+    await invoke(session.type === 'serial' ? 'serial_close' : 'net_close', {
+      [session.type === 'serial' ? 'port' : 'key']: session.type === 'serial' ? session.config.port : session.id,
+    });
+  } catch {
+    /* 后端状态由 close_all/断开事件兜底 */
+  }
+  session.status = 'closed';
+  await new Promise((r) => setTimeout(r, 350));
+  await openConnection(session);
+  notify(`端口已更新为 ${val}，已重新连接`);
 };
 </script>
 
@@ -79,8 +119,62 @@ const toggleAllSessions = () => {
           </button>
         </div>
 
-        <!-- 行2：连接路径 ip:port->ip:port（串口为端口与波特率） -->
-        <p class="session-sub">{{ sessionSubLabel(session) }}</p>
+        <!-- 行2：连接路径（可实时编辑）：串口为波特率矩形框；网络为远程端口矩形框 -->
+        <p class="session-sub">
+          <template v-if="session.type === 'serial'">
+            <span class="path-label">Baudrate:</span>
+            <input
+              class="path-edit"
+              :value="session.config.baudRate"
+              type="number"
+              min="1"
+              title="修改波特率（连接中实时生效）"
+              @click.stop
+              @change="onBaudChange(session, $event)"
+            />
+            <span class="path-unit">bps</span>
+          </template>
+          <template v-else-if="session.type === 'udp'">
+            <span class="path-label">{{ session.net?.localHost || '0.0.0.0' }}:{{ session.net?.localPort || 0 }}-&gt;</span>
+            <span class="path-label">{{ session.net?.host }}:</span>
+            <input
+              class="path-edit"
+              :value="session.net?.port"
+              type="number"
+              min="1"
+              max="65535"
+              title="修改远程端口（连接中自动重连生效）"
+              @click.stop
+              @change="onNetPortChange(session, $event)"
+            />
+          </template>
+          <template v-else-if="session.type === 'tcp_client'">
+            <span class="path-label">{{ session.net?.host }}:</span>
+            <input
+              class="path-edit"
+              :value="session.net?.port"
+              type="number"
+              min="1"
+              max="65535"
+              title="修改远程端口（连接中自动重连生效）"
+              @click.stop
+              @change="onNetPortChange(session, $event)"
+            />
+          </template>
+          <template v-else>
+            <span class="path-label">Listen:</span>
+            <input
+              class="path-edit"
+              :value="session.net?.port"
+              type="number"
+              min="1"
+              max="65535"
+              title="修改监听端口（连接中自动重连生效）"
+              @click.stop
+              @change="onNetPortChange(session, $event)"
+            />
+          </template>
+        </p>
 
         <!-- 行3：收发字节统计，按钮即开关——点击切换 TX/RX 数据是否显示（清空消息不清零计数） -->
         <div class="byte-line">
@@ -250,12 +344,47 @@ const toggleAllSessions = () => {
 .session-sub {
   margin: 6px 0 0;
   font-size: 12px;
-  line-height: 1.5;
-  color: #6b7280;
+  line-height: 1.7;
+  color: #3b414b;
   font-variant-numeric: tabular-nums;
+  display: flex;
+  align-items: center;
+  gap: 4px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 路径标签文字：与会话名同色系，不再浅灰 */
+.path-label {
+  color: #3b414b;
+  flex-shrink: 0;
+}
+
+/* 行内可编辑矩形框：波特率 / 远程端口 */
+.path-edit {
+  width: 64px;
+  padding: 1px 5px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  border-radius: 4px;
+  background: rgba(23, 26, 33, 0.04);
+  color: #23262b;
+  box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.14);
+}
+
+.path-edit:hover {
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.4);
+}
+
+.path-edit:focus {
+  outline: none;
+  background: #ffffff;
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.6);
+}
+
+.path-unit {
+  flex-shrink: 0;
+  color: #3b414b;
 }
 
 /* 状态点即连接开关：hover 放大提示可点击 */
@@ -373,7 +502,18 @@ const toggleAllSessions = () => {
 
 .theme-dark .session-sub,
 .theme-dark .session-actions {
-  color: #9da0a8;
+  color: #c6c9cf;
+}
+
+.theme-dark .path-label,
+.theme-dark .path-unit {
+  color: #c6c9cf;
+}
+
+.theme-dark .path-edit {
+  background: rgba(255, 255, 255, 0.06);
+  color: #dfdfe3;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.12);
 }
 
 .theme-dark .x-btn {

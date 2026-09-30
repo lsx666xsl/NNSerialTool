@@ -4,7 +4,7 @@ import type { SessionMessage } from '../types';
 import { autoScroll, fontSize } from '../stores/appStore';
 
 // 流式消息区：详情视图与分屏视图共用。
-// 时间戳按会话开关（与 RX/TX 方向标签相互独立）；RX/TX 为独立的方向过滤开关。
+// 时间戳与 RX/TX 开关只控制"前缀标签"的显隐——数据本身始终显示。
 // 自动滚动（默认关闭，工具栏手动勾选）：勾选后只要有新消息就滚到最底下；
 // “↓ 最新”按钮仅在「内容溢出出现滚动条 且 不在底部」时动态出现。
 // 支持 Ctrl+滚轮实时调整字号（11-22）。
@@ -15,17 +15,14 @@ const props = defineProps<{
   filterTx: boolean;
 }>();
 
-// 方向过滤只影响显示：计数、转发、日志仍处理全部数据。
-// INFO 系统信息不再进消息流（改为中央 toast 通知，见 store.notify）。
+// 全量显示（不过滤数据）：RX/TX/时间戳开关只作用于前缀标签。
 // 注意：不做渲染切片——切片裁剪会让 scrollHeight 突变、干扰自动滚动判定（历史 bug）；
 // 上限 2000 条由 store 裁剪，keyed diff + v-memo 让逐条追加的 diff 成本 O(1)。
-const visibleMessages = computed(() =>
-  props.messages.filter(
-    (m) =>
-      (m.direction === 'RX' && props.filterRx) ||
-      (m.direction === 'TX' && props.filterTx)
-  )
-);
+const visibleMessages = computed(() => props.messages);
+
+// 方向前缀是否显示（RX/TX 各自独立开关）
+const showDirTag = (direction: string) =>
+  direction === 'RX' ? props.filterRx : props.filterTx;
 
 const flowEl = ref<HTMLElement | null>(null);
 // "↓ 最新"按钮带滞回：距底 >60px 出现、<4px 才消失，
@@ -109,7 +106,7 @@ onUnmounted(() => resizeObserver?.disconnect());
       >
         <div class="flow-meta">
           <span v-if="showTimestamp && message.time" class="flow-time">{{ message.time }}</span>
-          <span class="flow-dir">{{ message.direction }}</span>
+          <span v-if="showDirTag(message.direction)" class="flow-dir">{{ message.direction }}</span>
         </div>
         <div class="flow-text">{{ message.text }}</div>
       </div>
