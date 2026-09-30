@@ -126,19 +126,44 @@ const newlineOptions = [
             </label>
           </div>
 
-          <!-- 发送区：上边界可上下拖动拉伸（与接收框互斥共享空间） -->
-          <div class="send-area">
-            <div class="send-resize" title="拖动调整发送框高度" @pointerdown="onResizeHandleDown"><span></span></div>
-            <!-- 发送栏：输入 + 拓展命令开关 + 发送按钮（拓展命令栏在面板右侧） -->
-            <div class="send-row">
-              <textarea
-                v-model="activeSession.sendText"
-                class="send-input"
-                rows="2"
-                :style="{ height: sendHeight + 'px' }"
-                placeholder="输入要发送的数据（Ctrl+回车 发送）"
-                @keydown.ctrl.enter.prevent="sendData(activeSession)"
-              ></textarea>
+          <!-- 工具带：顶部虚线即拖拽热区（按住上下拖调整发送框高度，与接收框互斥） -->
+          <div class="panel-toolbar">
+            <div class="toolbar-drag" title="上下拖动调整发送框高度" @pointerdown="onResizeHandleDown"></div>
+            <button class="ghost-btn" title="把当前消息框全部内容（含时间戳/方向标签）导出为日志文件；保存路径可在设置中配置" @click="exportSessionLog(activeSession)">
+              导出
+            </button>
+            <button class="ghost-btn" @click="clearSessionReceive(activeSession)">清空</button>
+            <label class="toolbar-item" title="发送时附加的换行符">
+              自动换行
+              <SelfSelect v-model="sendSettings.newline" :full="false" :options="newlineOptions" />
+            </label>
+            <!-- 自动发送组：与自动换行同栏 -->
+            <label class="auto-send-group" title="按设定的间隔自动发送发送框中的内容（作用于开启时的会话）">
+              <input type="checkbox" v-model="sendSettings.loopSend" />
+              自动发送
+              <NumberInput
+                v-model="sendSettings.loopInterval"
+                :min="10"
+                :max="600000"
+                :step="10"
+                class="auto-interval"
+                @click.stop
+              />
+              ms
+            </label>
+          </div>
+
+          <!-- 发送栏：输入框（左）+ 右侧竖排（拓展命令开关在发送按钮上方） -->
+          <div class="send-row">
+            <textarea
+              v-model="activeSession.sendText"
+              class="send-input"
+              rows="2"
+              :style="{ height: sendHeight + 'px' }"
+              placeholder="输入要发送的数据（Ctrl+回车 发送）"
+              @keydown.ctrl.enter.prevent="sendData(activeSession)"
+            ></textarea>
+            <div class="send-side">
               <button
                 class="tb-toggle send-side-toggle"
                 :class="{ on: cmdStripVisible }"
@@ -286,38 +311,12 @@ const newlineOptions = [
 /* 发送栏：输入框 + 发送按钮 + 拓展命令栏（与发送框等高） */
 .send-row {
   display: flex;
-  align-items: flex-end;
+  align-items: stretch;
   gap: 10px;
   flex-shrink: 0;
 }
 
 /* 发送区：上边界拖拽手柄 + 发送行；拖高时接收框自动收缩（flex 互斥） */
-.send-area {
-  flex-shrink: 0;
-}
-
-.send-resize {
-  height: 14px;
-  /* 命中区比视觉条更高更宽，方便鼠标抓取 */
-  margin: 0 -6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: ns-resize;
-  border-radius: 3px;
-}
-
-.send-resize span {
-  width: 40px;
-  height: 3px;
-  border-radius: 2px;
-  background: rgba(23, 26, 33, 0.15);
-  transition: background 0.15s ease;
-}
-
-.send-resize:hover span {
-  background: rgba(59, 111, 212, 0.55);
-}
 
 .send-input {
   flex: 1;
@@ -365,12 +364,53 @@ const newlineOptions = [
   box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
 }
 
+/* 工具带顶部拖拽热区：透明覆盖在虚线上，按住上下拖调整发送框高度 */
+.toolbar-drag {
+  position: absolute;
+  top: -3px;
+  left: 0;
+  right: 0;
+  height: 7px;
+  cursor: ns-resize;
+  z-index: 3;
+}
+
+.panel-toolbar {
+  position: relative;
+}
+
+/* 发送行右侧竖排：拓展命令开关叠在发送按钮上方 */
+.send-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.send-side .send-side-toggle {
+  padding: 8px 14px;
+  font-size: 13px;
+  border-radius: 6px;
+}
+
+.send-side .send-side-toggle.on {
+  background: rgba(59, 111, 212, 0.12);
+  color: #3563c2;
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.3);
+}
+
+.send-side .send-side-toggle:not(.on) {
+  background: rgba(23, 26, 33, 0.05);
+  color: #6b7280;
+  box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
+}
+
 .send-btn {
   padding: 10px 26px;
   flex-shrink: 0;
 }
 
-/* 拓展命令纵栏（SSCOM 风格）：命令按钮纵向排列，点击即发送 */
+/* 拓展命令纵栏：命令按钮纵向排列，点击即发送 */
 .cmd-strip {
   width: 150px;
   /* 与左侧发送消息框保持等高（随拖拽手柄同步变化） */
