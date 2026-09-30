@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onMounted, ref, shallowRef } from 'vue';
 import { appliedTheme } from '../stores/appStore';
 import { checkUpdate, openReleasePage, type UpdateInfo } from '../utils/update';
 import { check, type Update } from '@tauri-apps/plugin-updater';
@@ -9,7 +9,9 @@ import { relaunch } from '@tauri-apps/plugin-process';
 // 悬停徽标 → 简易更新日志浮层；点击浮层 → 界面中央的详细更新卡片（右上角可关闭，
 // 日志下方「更新」按钮执行原地下载安装并自动重启）。
 // 浏览器调试环境（无 updater 插件）回退：GitHub API 检测 + 打开下载页。
-const inplace = ref<Update | null>(null); // 原地更新模式：插件检测结果
+// 必须用 shallowRef：ref 会对值做深度响应式代理，插件 Update 类的私有字段
+// 经代理访问会抛 "Cannot read private member from an object whose class did not declare it"
+const inplace = shallowRef<Update | null>(null); // 原地更新模式：插件检测结果
 const info = ref<UpdateInfo | null>(null); // 回退模式：GitHub API 检测结果
 const detailOpen = ref(false);
 const phase = ref<'idle' | 'download' | 'install'>('idle');
