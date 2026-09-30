@@ -29,7 +29,10 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/latest/download/latest.json"],
+      "endpoints": [
+        "https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/latest/download/latest.json",
+        "https://cdn.jsdelivr.net/gh/lsx666xsl/Tauri-NNSerialTool@master/latest.json"
+      ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEZCREI2QTI2Qjc1QkEyMTIKUldRU29sdTNKbXJiKzBwQS9FVWFrN1dyaWZiWkFjeCs3S0ZwZnJCd09sM2FIMDVobXFWWVE4Vm4K"
     }
   },

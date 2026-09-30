@@ -1,0 +1,11 @@
+{
+  "version": "0.2.11",
+  "notes": "## 修复\n- 连接列表标题与下方内容间距过紧导致的文字重叠：标题行、空态虚线框、会话卡片内外间距统一加大\n- 拓展命令栏间距优化\n\n## 优化\n- 会话卡片整体对齐与呼吸感提升，深浅主题均已核对",
+  "pub_date": "2026-09-30T04:57:06.434Z",
+  "platforms": {
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiK3hGM21KQU5WVE9nUXc1Unc4RmhRb1lSR3BDalpPVmhGczgxQmM1RVlNTlJwUzNSa29kd1hCeXlXZERxeFlBZGIxMTBVVnBWY0RQcXRwMUJnQ2RuYlFFPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwNzQ0MTY2CWZpbGU6Tk5TZXJpYWxUb29sXzAuMi4xMV94NjQtc2V0dXAuZXhlCjM3cnBjTVhqU0dkNXZXbXZTWHRWVHNsa0Q3UWk4M2hOV0xXaHgwRkxmQnduUDhxZjRsVzlDdDcrSzNOaDFoMDZkVEQwOWdoYzlWQ050UFVCbGNkMENBPT0K",
+      "url": "https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/download/v0.2.11/NNSerialTool_0.2.11_x64-setup.exe"
+    }
+  }
+}
