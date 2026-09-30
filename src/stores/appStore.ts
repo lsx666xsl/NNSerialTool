@@ -331,10 +331,40 @@ export const createSession = () => {
   if (!canCreateSession.value) return;
 
   const isSerial = newSessionType.value === 'serial';
-  // 串口不重复创建：同一端口已有会话时直接提示（端口是独占资源，开两个会话也没有意义）
-  if (isSerial && sessions.value.some((item) => item.type === 'serial' && item.config.port === newSessionConfig.value.port)) {
-    notify(`${newSessionConfig.value.port} 已存在连接会话，不能重复创建`);
-    return;
+  // 串口同端口再添加：不新建——把表单中的新参数（波特率等）套用到既有会话上。
+  // 连接中：断开 → 更新参数 → 用新参数重连；未连接：直接更新配置；参数相同仅选中该会话。
+  if (isSerial) {
+    const existing = sessions.value.find(
+      (item) => item.type === 'serial' && item.config.port === newSessionConfig.value.port
+    );
+    if (existing) {
+      const cfg = { ...newSessionConfig.value };
+      const same =
+        existing.config.baudRate === cfg.baudRate &&
+        existing.config.dataBits === cfg.dataBits &&
+        existing.config.parityBits === cfg.parityBits &&
+        existing.config.stopBits === cfg.stopBits;
+      if (same) {
+        activeSessionId.value = existing.id;
+        notify(`${cfg.port} 会话已存在且参数相同`);
+        return;
+      }
+      const wasConnected = existing.status === 'connected';
+      void (async () => {
+        if (wasConnected) {
+          await closeConnection(existing);
+          // 等读线程退出并释放端口句柄，避免立刻重开失败
+          await new Promise((r) => setTimeout(r, 350));
+        }
+        existing.config = cfg;
+        if (wasConnected) {
+          await openConnection(existing);
+        }
+        activeSessionId.value = existing.id;
+        notify(`${cfg.port} 参数已更新${wasConnected ? '并重新连接' : ''}`);
+      })();
+      return;
+    }
   }
   // 网络不重复创建：同类型 + 完全相同的地址/端口配置视为同一会话
   if (!isSerial) {
