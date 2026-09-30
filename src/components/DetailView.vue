@@ -25,6 +25,8 @@ const connected = computed(() => activeSession.value?.status === 'connected');
 
 // 拓展命令编辑模式：切换后按钮变成可编辑的名称/内容输入行
 const cmdEditing = ref(false);
+// 右侧拓展命令栏显示开关（默认开启）
+const cmdStripVisible = ref(true);
 
 // 发送框高度（可拖动上边界调整；拖高发送框时接收框自动收缩，二者互斥共享空间）
 const sendHeight = ref(64);
@@ -127,7 +129,7 @@ const newlineOptions = [
           <!-- 发送区：上边界可上下拖动拉伸（与接收框互斥共享空间） -->
           <div class="send-area">
             <div class="send-resize" title="拖动调整发送框高度" @pointerdown="onResizeHandleDown"><span></span></div>
-            <!-- 发送栏：输入 + 发送按钮 + 拓展命令栏（与发送框等高，随拖拽同步变化） -->
+            <!-- 发送栏：输入 + 拓展命令开关 + 发送按钮（拓展命令栏在面板右侧） -->
             <div class="send-row">
               <textarea
                 v-model="activeSession.sendText"
@@ -137,39 +139,48 @@ const newlineOptions = [
                 placeholder="输入要发送的数据（Ctrl+回车 发送）"
                 @keydown.ctrl.enter.prevent="sendData(activeSession)"
               ></textarea>
-              <!-- 拓展命令纵栏：点击即发送到当前会话；编辑模式下可改名/改内容/删除 -->
-              <div class="cmd-strip">
-                <div class="cmd-head">
-                  <span class="cmd-title">拓展命令</span>
-                  <button class="mini-toggle" :class="{ on: cmdEditing }" @click="cmdEditing = !cmdEditing">
-                    {{ cmdEditing ? '完成' : '编辑' }}
-                  </button>
-                </div>
-                <div class="cmd-list">
-                  <template v-if="!cmdEditing">
-                    <button
-                      v-for="(cmd, index) in quickCommands"
-                      :key="index"
-                      class="cmd-btn"
-                      :disabled="!connected"
-                      :title="cmd.text"
-                      @click="sendQuickCommand(cmd)"
-                    >
-                      {{ cmd.name || `命令${index + 1}` }}
-                    </button>
-                  </template>
-                  <template v-else>
-                    <div v-for="(cmd, index) in quickCommands" :key="index" class="cmd-edit">
-                      <input v-model="cmd.name" placeholder="名称" />
-                      <input v-model="cmd.text" placeholder="内容" />
-                      <button class="cmd-del" title="删除命令" @click="removeQuickCommand(index)">删除</button>
-                    </div>
-                  </template>
-                  <button class="cmd-add" title="添加命令" @click="addQuickCommand">＋</button>
-                </div>
-              </div>
+              <button
+                class="tb-toggle send-side-toggle"
+                :class="{ on: cmdStripVisible }"
+                title="显示/隐藏右侧拓展命令栏"
+                @click="cmdStripVisible = !cmdStripVisible"
+              >
+                拓展命令
+              </button>
               <button class="primary-btn send-btn" :disabled="!connected" @click="sendData(activeSession)">发送</button>
             </div>
+          </div>
+        </div>
+
+        <!-- 拓展命令纵栏：点击即发送到当前会话；编辑模式下可改名/改内容/删除 -->
+        <div v-if="cmdStripVisible" class="cmd-strip">
+          <div class="cmd-head">
+            <span class="cmd-title">拓展命令</span>
+            <button class="mini-toggle" :class="{ on: cmdEditing }" @click="cmdEditing = !cmdEditing">
+              {{ cmdEditing ? '完成' : '编辑' }}
+            </button>
+          </div>
+          <div class="cmd-list">
+            <template v-if="!cmdEditing">
+              <button
+                v-for="(cmd, index) in quickCommands"
+                :key="index"
+                class="cmd-btn"
+                :disabled="!connected"
+                :title="cmd.text"
+                @click="sendQuickCommand(cmd)"
+              >
+                {{ cmd.name || `命令${index + 1}` }}
+              </button>
+            </template>
+            <template v-else>
+              <div v-for="(cmd, index) in quickCommands" :key="index" class="cmd-edit">
+                <input v-model="cmd.name" placeholder="名称" />
+                <input v-model="cmd.text" placeholder="内容" />
+                <button class="cmd-del" title="删除命令" @click="removeQuickCommand(index)">删除</button>
+              </div>
+            </template>
+            <button class="cmd-add" title="添加命令" @click="addQuickCommand">＋</button>
           </div>
         </div>
       </div>
@@ -197,22 +208,22 @@ const newlineOptions = [
   gap: 12px;
 }
 
-/* 已连接时标题右侧的删除会话按钮：与红色关闭连接并排 */
+/* 已连接/未连接时标题右侧的删除会话按钮：与连接按钮同款红色样式 */
 .x-session {
-  width: 30px;
-  height: 30px;
+  width: 40px;
+  height: 40px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  background: rgba(199, 69, 65, 0.1);
-  color: #c74541;
-  box-shadow: none;
+  background: linear-gradient(180deg, #c74541, #b93b37);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(199, 69, 65, 0.3);
 }
 
-.x-session:hover {
-  background: rgba(199, 69, 65, 0.2);
+.x-session:hover:not(:disabled) {
+  background: linear-gradient(180deg, #b93b37, #a83330);
   transform: none;
 }
 
@@ -332,6 +343,26 @@ const newlineOptions = [
   /* 窄窗口下允许收缩（最低 60px），给发送按钮让位，避免发送栏 4px 级横向溢出 */
   min-width: 60px;
   flex-shrink: 1;
+}
+
+/* 发送行内的拓展命令开关：与发送按钮等高、紧邻排列 */
+.send-side-toggle {
+  padding: 10px 14px;
+  font-size: 13px;
+  border-radius: 6px;
+  flex-shrink: 0;
+}
+
+.send-side-toggle.on {
+  background: rgba(59, 111, 212, 0.12);
+  color: #3563c2;
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.3);
+}
+
+.send-side-toggle:not(.on) {
+  background: rgba(23, 26, 33, 0.05);
+  color: #6b7280;
+  box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
 }
 
 .send-btn {

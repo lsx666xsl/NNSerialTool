@@ -20,6 +20,8 @@ import { relaunch } from '@tauri-apps/plugin-process';
 const phase = ref<'idle' | 'download' | 'install'>('idle');
 const progress = ref(0);
 const errMsg = ref('');
+// 下载取消标记：置位后忽略下载事件、完成后不安装不重启
+let cancelled = false;
 
 const isInstalling = computed(() => phase.value !== 'idle');
 
@@ -30,39 +32,84 @@ const simpleLog = computed(() => {
   return lines.length > 5 ? `${head}\n… 点击查看完整更新日志` : head;
 });
 
-// 详细卡片里的更新按钮：原地模式走下载安装 + 自动重启；回退模式打开下载页
+// 下载完成后安装并重启
+const installAndRestart = async () => {
+  phase.value = 'install';
+  try {
+    await inplaceUpdate.value?.install();
+    // Windows：安装器启动后应用自动退出；macOS/Linux 需手动重启
+    await relaunch();
+  } catch (e) {
+    errMsg.value = `安装失败: ${e}`;
+    phase.value = 'idle';
+  }
+};
+
+// 详细卡片里的更新按钮：桌面原地下载（完成后自动安装重启）；浏览器回退打开下载页
 const doUpdate = async () => {
   if (isInstalling.value) return;
-  if (inplaceUpdate.value) {
-    errMsg.value = '';
-    phase.value = 'download';
-    progress.value = 0;
+  if (!inplaceUpdate.value) {
+    // 浏览器调试环境回退：打开 Release 下载页
     try {
-      let total = 0;
-      let done = 0;
-      await inplaceUpdate.value.downloadAndInstall((event) => {
-        if (event.event === 'Started') {
-          total = event.data.contentLength ?? 0;
-        } else if (event.event === 'Progress') {
-          done += event.data.chunkLength;
-          progress.value = total ? Math.min(100, Math.round((done / total) * 100)) : 0;
-        } else if (event.event === 'Finished') {
-          phase.value = 'install';
-        }
-      });
-      await relaunch(); // 安装完成自动重启进入新版本
-    } catch (e) {
-      errMsg.value = `更新失败: ${e}`;
-      phase.value = 'idle';
+      await openReleasePage(`https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/latest`);
+    } catch {
+      /* 打开浏览器失败忽略 */
     }
     return;
   }
+  errMsg.value = '';
+  cancelled = false;
+  phase.value = 'download';
+  progress.value = 0;
+  try {
+    let total = 0;
+    let done = 0;
+    await inplaceUpdate.value.download((event) => {
+      if (cancelled) return; // 已取消：忽略后续进度事件
+      if (event.event === 'Started') {
+        total = event.data.contentLength ?? 0;
+      } else if (event.event === 'Progress') {
+        done += event.data.chunkLength;
+        progress.value = total ? Math.min(99, Math.round((done / total) * 100)) : 0;
+      }
+    });
+    if (cancelled) {
+      // 取消发生在下载完成之后：释放已下载数据，不安装
+      try {
+        await inplaceUpdate.value.close();
+      } catch {
+        /* 资源可能已释放 */
+      }
+      return;
+    }
+    progress.value = 100;
+    await installAndRestart();
+  } catch (e) {
+    if (!cancelled) {
+      errMsg.value = `下载失败: ${e}`;
+      phase.value = 'idle';
+    }
+  }
+};
+
+// 取消更新：停止安装流程并释放已下载的数据（如有）
+const cancelUpdate = async () => {
+  if (phase.value === 'install') return; // 安装已启动，无法回退
+  cancelled = true;
+  phase.value = 'idle';
   detailOpen.value = false;
   try {
-    await openReleasePage(latestVersion.value ? `https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/tag/v${latestVersion.value}` : 'https://github.com/lsx666xsl/Tauri-NNSerialTool/releases');
+    await inplaceUpdate.value?.close(); // 释放已下载的字节资源
   } catch {
-    /* 打开浏览器失败忽略 */
+    /* 资源可能已释放 */
   }
+  inplaceUpdate.value = null;
+  notifyCancelled();
+};
+
+const notifyCancelled = () => {
+  // 通过 appStore 的 notify 提示取消结果（避免循环依赖，动态引入）
+  void import('../stores/appStore').then(({ notify }) => notify('更新已取消，已清理下载内容'));
 };
 </script>
 
@@ -70,19 +117,28 @@ const doUpdate = async () => {
   <div v-if="hasUpdate" class="update-wrap" @click.stop>
     <button class="update-btn" title="发现新版本" @click="detailOpen = true">更新</button>
 
-    <!-- 悬停简易日志浮层：点击打开中央详细卡片 -->
-    <div class="update-pop" @click="detailOpen = true">
+    <!-- 悬停简易日志浮层：点击打开中央详细卡片；详细卡片打开期间隐藏 -->
+    <div v-show="!detailOpen" class="update-pop" @click="detailOpen = true">
       <p class="up-title">发现新版本 v{{ latestVersion }}</p>
       <pre class="up-log">{{ simpleLog }}</pre>
       <p class="up-hint">点击查看完整更新日志</p>
     </div>
   </div>
 
-  <!-- 中央详细更新卡片（右上角关闭 X；日志下方为更新执行按钮） -->
+  <!-- 中央详细更新卡片；下载中仅右上角 X 可取消，点击遮罩不关闭 -->
   <Teleport to="body">
-    <div v-if="detailOpen && hasUpdate" class="up-mask" @click="detailOpen = false">
+    <div
+      v-if="detailOpen && hasUpdate"
+      class="up-mask"
+      @click="phase === 'idle' && (detailOpen = false)"
+    >
       <div class="up-card" :class="{ 'theme-dark': appliedTheme === 'dark' }" @click.stop>
-        <button class="up-close" title="关闭" @click="detailOpen = false">
+        <button
+          class="up-close"
+          :class="{ 'up-close-cancel': phase === 'download' }"
+          :title="phase === 'download' ? '取消更新并清理已下载内容' : '关闭'"
+          @click="phase === 'download' ? cancelUpdate() : (detailOpen = false)"
+        >
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <line x1="18" y1="6" x2="6" y2="18"></line>
             <line x1="6" y1="6" x2="18" y2="18"></line>
@@ -90,20 +146,20 @@ const doUpdate = async () => {
         </button>
         <h3 class="up-card-title">发现新版本</h3>
         <p class="up-card-sub">当前版本 v{{ currentVersion }} → 最新版本 v{{ latestVersion }}</p>
-        <p class="up-card-label">更新内容</p>
-        <div class="up-card-log">
-          <pre class="up-log">{{ changelog }}</pre>
+        <p class="up-card-label">{{ phase === 'download' ? '正在下载更新' : '更新内容' }}</p>
+        <div class="up-card-log" :class="{ downloading: phase === 'download' }">
+          <pre class="up-log">{{ phase === 'download' ? '正在从更新源下载新版本安装包，完成后将自动安装并重启…' : changelog }}</pre>
         </div>
         <div v-if="phase === 'download'" class="up-progress">
           <div class="up-progress-bar" :style="{ width: progress + '%' }"></div>
           <span class="up-progress-text">{{ progress }}%</span>
         </div>
         <p v-if="errMsg" class="up-card-err">{{ errMsg }}</p>
-        <button class="up-card-btn" :disabled="isInstalling" @click="doUpdate">
-          {{ phase === 'download' ? `下载中 ${progress}%` : phase === 'install' ? '安装中…' : inplaceUpdate ? '更新' : '打开下载页' }}
+        <button v-if="phase === 'idle'" class="up-card-btn" @click="doUpdate">
+          {{ inplaceUpdate ? '更新' : '打开下载页' }}
         </button>
         <p class="up-card-note">
-          {{ inplaceUpdate ? '更新将自动下载并静默安装，完成后软件自动重启进入新版本。' : '将打开下载页面，下载新版本安装包覆盖安装即可完成更新。' }}
+          {{ phase === 'download' ? '下载中请保持软件开启；点击右上角 × 可取消并清理已下载内容。' : inplaceUpdate ? '点击「更新」将自动下载并静默安装，完成后软件自动重启进入新版本。' : '点击「打开下载页」前往手动下载安装。' }}
         </p>
       </div>
     </div>
@@ -221,7 +277,7 @@ const doUpdate = async () => {
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-/* 右上角关闭图标 */
+/* 右上角关闭/取消图标；下载中变为取消语义（红框提示） */
 .up-close {
   position: absolute;
   top: 10px;
@@ -241,6 +297,15 @@ const doUpdate = async () => {
 .up-close:hover {
   background: rgba(199, 69, 65, 0.1);
   color: #c74541;
+}
+
+.up-close.up-close-cancel {
+  color: #c74541;
+  box-shadow: inset 0 0 0 1px rgba(199, 69, 65, 0.4);
+}
+
+.up-close.up-close-cancel:hover {
+  background: rgba(199, 69, 65, 0.15);
 }
 
 .up-card-title {
@@ -270,6 +335,10 @@ const doUpdate = async () => {
   color: #2e8b45;
 }
 
+.up-card.theme-dark .up-card-label {
+  color: #6bc97e;
+}
+
 .up-card-log {
   padding: 10px;
   border: 1px solid rgba(23, 26, 33, 0.1);
@@ -284,7 +353,11 @@ const doUpdate = async () => {
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-/* 下载进度条 */
+.up-card-log.downloading {
+  border-style: dashed;
+}
+
+/* 下载进度条：蓝色斜纹动画（与绿色更新按钮区分） */
 .up-progress {
   display: flex;
   align-items: center;
@@ -292,16 +365,37 @@ const doUpdate = async () => {
 }
 
 .up-progress-bar {
-  height: 8px;
+  height: 10px;
   flex: 1;
-  border-radius: 4px;
-  background: linear-gradient(180deg, #2eb85c, #28a745);
-  transition: width 0.2s ease;
+  border-radius: 5px;
+  overflow: hidden;
+  background: rgba(59, 130, 246, 0.18);
+}
+
+.up-progress-bar::before {
+  content: '';
+  display: block;
+  height: 100%;
+  width: var(--up-progress, 0%);
+  border-radius: 5px;
+  background: linear-gradient(45deg, #3b82f6 25%, #60a5fa 25% 50%, #3b82f6 50% 75%, #60a5fa 75%);
+  background-size: 18px 18px;
+  animation: up-progress-stripe 0.7s linear infinite;
+  transition: width 0.25s ease;
+}
+
+@keyframes up-progress-stripe {
+  from {
+    background-position: 0 0;
+  }
+  to {
+    background-position: 18px 0;
+  }
 }
 
 .up-progress-text {
   font-size: 12px;
-  color: #2e8b45;
+  color: #3b82f6;
   font-variant-numeric: tabular-nums;
 }
 
