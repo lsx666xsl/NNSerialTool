@@ -5,13 +5,13 @@ import { checkUpdate, openReleasePage, type UpdateInfo } from '../utils/update';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 
-// 版本更新按钮：仅检测到新版本时显示（绿色「更新」）。
-// 桌面环境优先用 updater 插件做原地更新（读取 latest.json，签名校验，
-// 下载 → 静默安装 → 自动重启）；插件不可用（浏览器调试）时回退为
-// GitHub API 检测 + 打开 Release 下载页。
+// 版本更新：入口在标题栏应用名右侧（绿色「更新」徽标，仅检测到新版本时显示）。
+// 悬停徽标 → 简易更新日志浮层；点击浮层 → 界面中央的详细更新卡片（右上角可关闭，
+// 日志下方「更新」按钮执行原地下载安装并自动重启）。
+// 浏览器调试环境（无 updater 插件）回退：GitHub API 检测 + 打开下载页。
 const inplace = ref<Update | null>(null); // 原地更新模式：插件检测结果
 const info = ref<UpdateInfo | null>(null); // 回退模式：GitHub API 检测结果
-const confirmOpen = ref(false);
+const detailOpen = ref(false);
 const phase = ref<'idle' | 'download' | 'install'>('idle');
 const progress = ref(0);
 const errMsg = ref('');
@@ -21,6 +21,13 @@ const latestVersion = computed(() => inplace.value?.version ?? info.value?.lates
 const currentVersion = computed(() => inplace.value?.currentVersion ?? info.value?.currentVersion ?? '');
 const changelog = computed(() => inplace.value?.body ?? info.value?.changelog ?? '');
 const isInstalling = computed(() => phase.value !== 'idle');
+
+// 简易日志：取前 5 行，超出部分提示点开详情
+const simpleLog = computed(() => {
+  const lines = changelog.value.split('\n').filter((l) => l.trim());
+  const head = lines.slice(0, 5).join('\n');
+  return lines.length > 5 ? `${head}\n… 点击查看完整更新日志` : head;
+});
 
 // 启动后延迟检测（不阻塞应用启动）
 onMounted(() => {
@@ -36,7 +43,7 @@ onMounted(() => {
   }, 3000);
 });
 
-// 确认更新：原地模式走下载安装 + 自动重启；回退模式打开下载页
+// 详细卡片里的更新按钮：原地下载安装 + 自动重启；回退模式打开下载页
 const doUpdate = async () => {
   if (isInstalling.value) return;
   if (inplace.value) {
@@ -66,7 +73,7 @@ const doUpdate = async () => {
   if (!info.value) return;
   try {
     await openReleasePage(info.value.releaseUrl);
-    confirmOpen.value = false;
+    detailOpen.value = false;
   } catch {
     /* 打开浏览器失败忽略 */
   }
@@ -75,39 +82,42 @@ const doUpdate = async () => {
 
 <template>
   <div v-if="hasUpdate" class="update-wrap" @click.stop>
-    <button class="update-btn" title="发现新版本" @click="confirmOpen = true">更新</button>
+    <button class="update-btn" title="发现新版本" @click="detailOpen = true">更新</button>
 
-    <!-- 悬停浮层：上边框紧贴按钮下缘（top:100% 无间距） -->
-    <div class="update-pop">
-      <p class="up-title">v{{ latestVersion }} 更新内容</p>
-      <pre class="up-log">{{ changelog }}</pre>
-      <p class="up-hint">点击「更新」按钮查看确认</p>
+    <!-- 悬停简易日志浮层：点击打开中央详细卡片 -->
+    <div class="update-pop" @click="detailOpen = true">
+      <p class="up-title">发现新版本 v{{ latestVersion }}</p>
+      <pre class="up-log">{{ simpleLog }}</pre>
+      <p class="up-hint">点击查看完整更新日志</p>
     </div>
   </div>
 
-  <!-- 确认弹窗 -->
+  <!-- 中央详细更新卡片（右上角关闭 X；日志下方为更新执行按钮） -->
   <Teleport to="body">
-    <div v-if="confirmOpen && hasUpdate" class="up-mask" @click="confirmOpen = false">
-      <div class="up-dialog" :class="{ 'theme-dark': appliedTheme === 'dark' }" @click.stop>
-        <h3 class="up-dialog-title">确认更新</h3>
-        <p class="up-dialog-sub">当前版本 v{{ currentVersion }} → 最新版本 v{{ latestVersion }}</p>
-        <div class="up-dialog-body">
-          <p class="up-title">更新内容</p>
+    <div v-if="detailOpen && hasUpdate" class="up-mask" @click="detailOpen = false">
+      <div class="up-card" :class="{ 'theme-dark': appliedTheme === 'dark' }" @click.stop>
+        <button class="up-close" title="关闭" @click="detailOpen = false">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+        </button>
+        <h3 class="up-card-title">发现新版本</h3>
+        <p class="up-card-sub">当前版本 v{{ currentVersion }} → 最新版本 v{{ latestVersion }}</p>
+        <p class="up-card-label">更新内容</p>
+        <div class="up-card-log">
           <pre class="up-log">{{ changelog }}</pre>
         </div>
         <div v-if="phase === 'download'" class="up-progress">
           <div class="up-progress-bar" :style="{ width: progress + '%' }"></div>
           <span class="up-progress-text">{{ progress }}%</span>
         </div>
-        <div class="up-actions">
-          <button class="ghost-btn" :disabled="isInstalling" @click="confirmOpen = false">取消</button>
-          <button class="primary-btn" :disabled="isInstalling" @click="doUpdate">
-            {{ phase === 'download' ? `下载中 ${progress}%` : phase === 'install' ? '安装中…' : inplace ? '确认更新' : '打开下载页' }}
-          </button>
-        </div>
-        <p v-if="errMsg" class="up-dialog-err">{{ errMsg }}</p>
-        <p class="up-dialog-note">
-          {{ inplace ? '确认后将自动下载并静默安装，完成后软件自动重启进入新版本。' : '确认后将打开下载页面，下载新版本安装包覆盖安装即可完成更新。' }}
+        <p v-if="errMsg" class="up-card-err">{{ errMsg }}</p>
+        <button class="up-card-btn" :disabled="isInstalling" @click="doUpdate">
+          {{ phase === 'download' ? `下载中 ${progress}%` : phase === 'install' ? '安装中…' : inplace ? '更新' : '打开下载页' }}
+        </button>
+        <p class="up-card-note">
+          {{ inplace ? '更新将自动下载并静默安装，完成后软件自动重启进入新版本。' : '将打开下载页面，下载新版本安装包覆盖安装即可完成更新。' }}
         </p>
       </div>
     </div>
@@ -117,47 +127,43 @@ const doUpdate = async () => {
 <style scoped>
 .update-wrap {
   position: relative;
+  margin-left: 10px;
 }
 
-/* 绿色更新按钮 */
+/* 绿色更新徽标（标题栏内，与界面文字相比更醒目） */
 .update-btn {
-  padding: 6px 14px;
+  padding: 2px 10px;
+  font-size: 11px;
+  border-radius: 999px;
   background: linear-gradient(180deg, #2eb85c, #28a745);
   color: #ffffff;
-  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+  box-shadow: 0 2px 8px rgba(40, 167, 69, 0.35);
 }
 
 .update-btn:hover:not(:disabled) {
   background: linear-gradient(180deg, #28a745, #218838);
 }
 
-/* 悬停浮层：紧贴按钮下缘（与新建会话下拉浮层同款样式） */
+/* 悬停简易日志浮层：紧贴徽标下方，点击打开详细卡片 */
 .update-pop {
   position: absolute;
-  /* 上边框紧贴按钮下边框（间距 0） */
-  top: 100%;
-  right: 0;
-  z-index: 80;
-  width: 280px;
-  max-height: 320px;
-  overflow: auto;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 90;
+  width: 300px;
   padding: 10px;
   display: flex;
   flex-direction: column;
   gap: 6px;
   background: #ffffff;
   border: 1px solid rgba(23, 26, 33, 0.12);
-  border-top-left-radius: 0;
   border-radius: 8px;
   box-shadow: 0 12px 32px rgba(15, 23, 42, 0.18);
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.16s ease, visibility 0.16s ease;
+  cursor: pointer;
 }
 
-.update-wrap:hover .update-pop {
-  opacity: 1;
-  visibility: visible;
+.update-pop:hover {
+  border-color: rgba(59, 111, 212, 0.4);
 }
 
 .up-title {
@@ -174,6 +180,7 @@ const doUpdate = async () => {
   color: #23262b;
   white-space: pre-wrap;
   word-break: break-word;
+  font-family: inherit;
 }
 
 .up-hint {
@@ -182,7 +189,7 @@ const doUpdate = async () => {
   color: #8a9099;
 }
 
-/* 深色主题 */
+/* 深色主题（标题栏浮层） */
 .theme-dark .update-pop {
   background: #33353a;
   border-color: rgba(255, 255, 255, 0.12);
@@ -197,7 +204,7 @@ const doUpdate = async () => {
   color: #7c828c;
 }
 
-/* ===== 确认弹窗（Teleport 到 body，需自持主题类） ===== */
+/* ===== 中央详细更新卡片（Teleport 到 body，自持主题类） ===== */
 .up-mask {
   position: fixed;
   inset: 0;
@@ -207,12 +214,13 @@ const doUpdate = async () => {
   background: rgba(0, 0, 0, 0.45);
 }
 
-.up-dialog {
-  width: 420px;
+.up-card {
+  position: relative;
+  width: 460px;
   max-width: calc(100vw - 48px);
   max-height: calc(100vh - 96px);
   overflow: auto;
-  padding: 18px;
+  padding: 18px 20px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -222,32 +230,61 @@ const doUpdate = async () => {
   box-shadow: 0 24px 64px rgba(15, 23, 42, 0.3);
 }
 
-.up-dialog.theme-dark {
+.up-card.theme-dark {
   background: #2b2d30;
   border-color: rgba(255, 255, 255, 0.1);
 }
 
-.up-dialog-title {
+/* 右上角关闭图标 */
+.up-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: transparent;
+  color: #6b7280;
+  box-shadow: none;
+}
+
+.up-close:hover {
+  background: rgba(199, 69, 65, 0.1);
+  color: #c74541;
+}
+
+.up-card-title {
   margin: 0;
   font-size: 16px;
   color: #23262b;
 }
 
-.up-dialog.theme-dark .up-dialog-title {
+.up-card.theme-dark .up-card-title {
   color: #f4f4f6;
 }
 
-.up-dialog-sub {
+.up-card-sub {
   margin: 0;
   font-size: 13px;
   color: #6b7280;
 }
 
-.up-dialog.theme-dark .up-dialog-sub {
+.up-card.theme-dark .up-card-sub {
   color: #9da0a8;
 }
 
-.up-dialog-body {
+.up-card-label {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #2e8b45;
+}
+
+.up-card-log {
   padding: 10px;
   border: 1px solid rgba(23, 26, 33, 0.1);
   border-radius: 8px;
@@ -256,7 +293,7 @@ const doUpdate = async () => {
   overflow: auto;
 }
 
-.up-dialog.theme-dark .up-dialog-body {
+.up-card.theme-dark .up-card-log {
   background: #1e1f22;
   border-color: rgba(255, 255, 255, 0.1);
 }
@@ -282,19 +319,29 @@ const doUpdate = async () => {
   font-variant-numeric: tabular-nums;
 }
 
-.up-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
+/* 日志下方的更新执行按钮 */
+.up-card-btn {
+  padding: 9px 16px;
+  background: linear-gradient(180deg, #2eb85c, #28a745);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
 }
 
-.up-dialog-note {
+.up-card-btn:hover:not(:disabled) {
+  background: linear-gradient(180deg, #28a745, #218838);
+}
+
+.up-card-btn:disabled {
+  opacity: 0.7;
+}
+
+.up-card-note {
   margin: 0;
   font-size: 12px;
   color: #8a9099;
 }
 
-.up-dialog-err {
+.up-card-err {
   margin: 0;
   font-size: 12px;
   color: #c74541;

@@ -61,6 +61,8 @@ onUnmounted(() => {
       <div class="tb-left" data-tauri-drag-region>
         <img :src="logoUrl" class="tb-logo-img" alt="NNSerialTool" draggable="false" />
         <span class="tb-title">NNSerialTool</span>
+        <!-- 更新入口：仅检测到新版本时显示（悬停简易日志，点开中央详细卡片） -->
+        <UpdateButton />
       </div>
       <div class="tb-drag" data-tauri-drag-region></div>
       <div class="tb-controls">
@@ -87,7 +89,6 @@ onUnmounted(() => {
           <h1>工作台</h1>
         </div>
         <div class="toolbar-actions">
-          <UpdateButton />
           <SettingsMenu />
           <ViewSwitch />
         </div>
