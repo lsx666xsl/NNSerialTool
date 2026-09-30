@@ -42,7 +42,7 @@ const toggleAllSessions = () => {
           :title="allConnected ? '关闭列表中的全部连接' : '打开列表中的全部连接'"
           @click.stop="toggleAllSessions"
         >
-          {{ allConnected ? '全部关闭' : '全部开启' }}
+          {{ allConnected ? '全部关闭' : '全部打开' }}
         </button>
         <span>{{ connectedCount }}/{{ sessions.length }} 已连接</span>
       </span>

@@ -9,10 +9,11 @@ export const netSessionName = (type: ConnectionType, net: NetConfig) => {
   return `UDP :${net.localPort || net.port}`;
 };
 
-// 会话卡片的灰色副标题：纯地址/参数描述，不与标题中的类型重复（卡片标题行 X 左侧展示）
+// 会话卡片的参数描述（标题行 X 左侧展示）：
+// UDP/TCP 客户端描述远程端（目标），TCP 服务端描述监听端口
 export const sessionSubLabel = (session: ConnectionSession) => {
   if (session.type === 'serial') return `串口 · ${session.config.baudRate}bps`;
   if (session.type === 'tcp_server') return `Listen :${session.net?.port ?? ''}`;
-  if (session.type === 'udp') return `Local :${session.net?.localPort || session.net?.port || ''}`;
+  if (session.type === 'udp') return `Remote :${session.net?.port || ''}`;
   return `Remote ${session.net?.host}:${session.net?.port}`;
 };
