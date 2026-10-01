@@ -2,11 +2,11 @@ import type { ConnectionSession, ConnectionType, NetConfig } from '../types';
 
 // 会话相关的展示与描述辅助函数，组件与日志模块共用。
 
-// 网络会话的名称：协议类型 + 地址，直观区分 Client/Server
+// 网络会话的名称：协议类型 + 地址，直观区分 Client/Server（冒号紧跟类型名）
 export const netSessionName = (type: ConnectionType, net: NetConfig) => {
   if (type === 'tcp_client') return `TCP Client ${net.host}:${net.port}`;
-  if (type === 'tcp_server') return `TCP Server :${net.port}`;
-  return `UDP :${net.localPort || net.port}`;
+  if (type === 'tcp_server') return `TCP Server:${net.port}`;
+  return `UDP:${net.localPort || net.port}`;
 };
 
 // 会话卡片的连接路径描述（标题行下一行，格式 ip:port->ip:port）：
