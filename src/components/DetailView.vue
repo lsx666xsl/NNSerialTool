@@ -26,6 +26,24 @@ const connected = computed(() => activeSession.value?.status === 'connected');
 
 // 拓展命令编辑模式：切换后按钮变成可编辑的名称/内容输入行
 const cmdEditing = ref(false);
+// 拓展命令栏宽度（竖向虚线分隔线可左右拖拽调整，120~280px）
+const cmdStripWidth = ref(150);
+
+const onDividerDown = (e: PointerEvent) => {
+  e.preventDefault();
+  const startX = e.clientX;
+  const startWidth = cmdStripWidth.value;
+  const onMove = (ev: PointerEvent) => {
+    // 向左拖加宽、向右拖收窄
+    cmdStripWidth.value = Math.min(280, Math.max(120, startWidth - (ev.clientX - startX)));
+  };
+  const onUp = () => {
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+  };
+  window.addEventListener('pointermove', onMove);
+  window.addEventListener('pointerup', onUp);
+};
 // 右侧拓展命令栏显示开关（默认开启）
 const cmdStripVisible = ref(false);
 
@@ -185,8 +203,11 @@ const newlineOptions = [
           </div>
         </div>
 
+        <!-- 竖向虚线分隔：兼拖拽手柄（左右拖调整命令栏宽度） -->
+        <div v-if="cmdStripVisible" class="panel-divider" title="左右拖动调整命令栏宽度" @pointerdown="onDividerDown"></div>
+
         <!-- 拓展命令纵栏：点击即发送到当前会话；编辑模式下可改名/改内容/删除 -->
-        <div v-if="cmdStripVisible" class="cmd-strip">
+        <div v-if="cmdStripVisible" class="cmd-strip" :style="{ width: cmdStripWidth + 'px' }">
           <div class="cmd-head">
             <span class="cmd-title">拓展命令</span>
             <button class="mini-toggle" :class="{ on: cmdEditing }" @click="cmdEditing = !cmdEditing">
@@ -397,8 +418,20 @@ const newlineOptions = [
 }
 
 /* 拓展命令纵栏：命令按钮纵向排列，点击即发送 */
+.panel-divider {
+  align-self: stretch;
+  width: 0;
+  border-left: 1px dashed rgba(23, 26, 33, 0.18);
+  margin: 0 9px;
+  cursor: col-resize;
+}
+
+.theme-dark .panel-divider {
+  border-left-color: rgba(255, 255, 255, 0.16);
+}
+
 .cmd-strip {
-  width: 150px;
+
   /* 与左侧发送消息框保持等高（随拖拽手柄同步变化） */
   align-self: stretch;
   flex-shrink: 0;
