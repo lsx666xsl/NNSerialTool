@@ -360,6 +360,18 @@ button:disabled {
   white-space: nowrap;
 }
 
+/* 隐藏原生数字输入框的步进按钮（手动输入更快更直观） */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
 /* ============ 空态提示 ============ */
 .empty-box {
   padding: 18px;
