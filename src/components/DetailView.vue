@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import MessageFlow from './MessageFlow.vue';
 import NumberInput from './NumberInput.vue';
 import SelfSelect from './SelfSelect.vue';
+import { bytesToHex, hexToBytes } from '../utils/format';
 import {
   activeSession,
   addQuickCommand,
@@ -27,6 +28,29 @@ const connected = computed(() => activeSession.value?.status === 'connected');
 const cmdEditing = ref(false);
 // 右侧拓展命令栏显示开关（默认开启）
 const cmdStripVisible = ref(false);
+
+// 发送框 HEX/文本切换：双向转换内容（字符串⇄HEX 字节流），空内容仅翻转模式
+const toggleSendHex = (session: import('../types').ConnectionSession) => {
+  const toHex = !(session.sendHexMode ?? false);
+  session.sendHexMode = toHex;
+  if (!session.sendText.trim()) return;
+  session.sendText = toHex
+    ? bytesToHex(Array.from(new TextEncoder().encode(session.sendText)))
+    : new TextDecoder().decode(new Uint8Array(hexToBytes(session.sendText)));
+};
+
+// HEX 模式输入过滤：实时剥除非十六进制字符（允许空格分组）
+const onSendInput = (session: import('../types').ConnectionSession, e: Event) => {
+  if (!(session.sendHexMode ?? false)) return;
+  const el = e.target as HTMLTextAreaElement;
+  const filtered = el.value.replace(/[^0-9a-fA-F ]/g, '');
+  if (filtered !== el.value) {
+    const pos = el.selectionStart;
+    el.value = filtered;
+    session.sendText = filtered;
+    el.setSelectionRange(pos, pos);
+  }
+};
 
 // 发送框高度（可拖动上边界调整；拖高发送框时接收框自动收缩，二者互斥共享空间）
 const sendHeight = ref(64);
@@ -139,14 +163,22 @@ const newlineOptions = [
             </button>
           </div>
 
-          <!-- 发送栏：输入框（左）+ 右侧竖排（拓展命令开关在发送按钮上方，底边与输入框对齐） -->
+          <!-- 发送栏：HEX/文本切换 + 输入框（左）+ 右侧竖排（拓展命令开关在发送按钮上方，底边与输入框对齐） -->
           <div class="send-row" :style="{ height: sendHeight + 'px' }">
+            <button
+              class="tb-toggle hex-send-toggle"
+              :class="{ on: activeSession.sendHexMode ?? false }"
+              :title="activeSession.sendHexMode ? '当前为十六进制发送（仅接受 0-9 A-F 与空格）' : '切换为十六进制发送模式'"
+              @click="toggleSendHex(activeSession)"
+            >
+              HEX
+            </button>
             <textarea
               v-model="activeSession.sendText"
               class="send-input"
               rows="2"
-              :style="{ height: sendHeight + 'px' }"
-              placeholder="输入要发送的数据（Ctrl+回车 发送）"
+              :placeholder="activeSession.sendHexMode ? '输入十六进制（如 41 42 43）' : '输入要发送的数据（Ctrl+回车 发送）'"
+              @input="onSendInput(activeSession, $event)"
               @keydown.ctrl.enter.prevent="sendData(activeSession)"
             ></textarea>
             <button class="primary-btn send-btn" :disabled="!connected" @click="sendData(activeSession)">发送</button>
@@ -294,6 +326,21 @@ const newlineOptions = [
 }
 
 /* 发送区：上边界拖拽手柄 + 发送行；拖高时接收框自动收缩（flex 互斥） */
+
+/* 发送框 HEX 模式开关：小号矩形，激活态蓝色 */
+.hex-send-toggle {
+  padding: 4px 10px;
+  font-size: 11px;
+  border-radius: 5px;
+  align-self: flex-end;
+  margin-bottom: 6px;
+}
+
+.hex-send-toggle.on {
+  background: linear-gradient(180deg, #3b82f6, #2563eb);
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+}
 
 .send-input {
   flex: 1;

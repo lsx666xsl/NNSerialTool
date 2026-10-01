@@ -344,6 +344,7 @@ pub async fn serial_close_all(state: tauri::State<'_, SharedState>) -> Result<us
 pub async fn serial_write(
     port: String,
     data: String,
+    bytes: Option<Vec<u8>>,
     state: tauri::State<'_, SharedState>,
 ) -> Result<String, String> {
     let state = state.inner().clone();
@@ -355,10 +356,11 @@ pub async fn serial_write(
             .ports
             .get(&port)
             .ok_or(format!("串口 {} 未打开", port))?;
-        // 将数据写入串口（公共实现）
+        // 将数据写入串口（公共实现）；二进制模式优先使用原始字节
+        let payload = bytes.unwrap_or_else(|| data.as_bytes().to_vec());
         let handle = handle;
-        serial_write_bytes(handle, data.as_bytes())?;
-        Ok(format!("已发送 {} 字节", data.len()))
+        serial_write_bytes(handle, &payload)?;
+        Ok(format!("已发送 {} 字节", payload.len()))
     })
     .await
     .map_err(|e| format!("任务执行失败: {}", e))?

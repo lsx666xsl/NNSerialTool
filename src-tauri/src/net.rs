@@ -565,13 +565,16 @@ pub async fn net_close_all(state: tauri::State<'_, SharedNetState>) -> Result<us
 pub async fn net_write(
     key: String,
     data: String,
+    bytes: Option<Vec<u8>>,
     state: tauri::State<'_, SharedNetState>,
 ) -> Result<String, String> {
     let state = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
     let guard = state.lock().map_err(|e| e.to_string())?;
     let handle = guard.conns.get(&key).ok_or(format!("连接未打开: {}", key))?;
-    let bytes = data.as_bytes();
+    // 二进制模式优先使用原始字节（十六进制发送），否则按 UTF-8 字符串
+    let payload = bytes.unwrap_or_else(|| data.as_bytes().to_vec());
+    let bytes = payload.as_slice();
 
     match handle.kind {
         NetKind::TcpClient => {

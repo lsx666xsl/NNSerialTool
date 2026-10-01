@@ -26,6 +26,18 @@ const visibleMessages = computed(() => props.messages);
 const showDirTag = (direction: string) =>
   direction === 'RX' ? props.filterRx : props.filterTx;
 
+// 纯连续流模式：时间戳 + RX + TX 前缀全关时，去掉行结构，数据按到达顺序连成一段
+const isContinuous = computed(() => !props.showTimestamp && !props.filterRx && !props.filterTx);
+
+// 单条消息的显示文本：HEX 模式渲染字节流（连续流模式补尾随空格保证块间分隔）
+const renderText = (m: SessionMessage) => {
+  if (props.hexMode && m.raw) {
+    const hex = bytesToHex(m.raw);
+    return isContinuous.value ? hex + ' ' : hex;
+  }
+  return m.text;
+};
+
 const flowEl = ref<HTMLElement | null>(null);
 // "↓ 最新"按钮带滞回：距底 >60px 出现、<4px 才消失，
 // 避免临界距离反复横跳导致的按钮闪烁（接收抖动的来源之一）
@@ -90,7 +102,7 @@ onUnmounted(() => resizeObserver?.disconnect());
     <div
       ref="flowEl"
       class="message-flow"
-      :class="{ anchored: visibleMessages.length > 0 }"
+      :class="{ anchored: visibleMessages.length > 0 && !isContinuous, continuous: isContinuous }"
       :style="{ fontSize: fontSize + 'px' }"
       @scroll="onScroll"
       @wheel="onWheel"
@@ -111,7 +123,7 @@ onUnmounted(() => resizeObserver?.disconnect());
           <span v-if="showDirTag(message.direction)" class="flow-dir">{{ message.direction }}</span>
         </div>
         <!-- 十六进制模式：显示原始字节 HEX 流（无原始字节的旧消息回退文本） -->
-        <div class="flow-text">{{ hexMode && message.raw ? bytesToHex(message.raw) : message.text }}</div>
+        <div class="flow-text">{{ renderText(message) }}</div>
       </div>
     </div>
     <button
@@ -226,6 +238,28 @@ onUnmounted(() => resizeObserver?.disconnect());
 
 .flow-line.tx .flow-dir {
   color: #2b6cb0;
+}
+
+/* 纯连续流模式（时间戳+RX+TX 全关）：去掉行结构，块转行内，
+   数据按到达顺序连成一段（数据内的真实换行符仍会换行） */
+.message-flow.continuous {
+  display: block;
+}
+
+/* 空 meta 块会把 inline 行打断，一并隐藏 */
+.message-flow.continuous .flow-meta {
+  display: none;
+}
+
+.message-flow.continuous .flow-line,
+.message-flow.continuous .flow-text {
+  display: inline;
+  padding: 0;
+  border-radius: 0;
+}
+
+.message-flow.continuous .flow-line:hover {
+  background: transparent;
 }
 
 /* 深色主题：深底浅字，方向色提亮 */

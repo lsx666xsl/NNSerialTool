@@ -15,7 +15,7 @@ import type {
   ThemeMode,
 } from '../types';
 import { readStorage, writeStorage } from '../utils/storage';
-import { decodeBytes, nowText, todayText } from '../utils/format';
+import { bytesToHex, decodeBytes, hexToBytes, nowText, todayText } from '../utils/format';
 import { netSessionName } from '../utils/session';
 
 // ==================================================================
@@ -580,23 +580,36 @@ export const sendData = async (session: ConnectionSession, textOverride?: string
   }
 
   try {
+    // 发送框 HEX 模式：输入内容按 HEX 解析为原始字节（换行符按设置追加为 0D/0A）
+    const hexMode = session.sendHexMode ?? false;
+    let payloadBytes: number[];
+    let payloadText: string;
+    if (hexMode) {
+      const seqBytes =
+        newlineSeq.value === '\r\n' ? [13, 10] : newlineSeq.value === '\n' ? [10] : newlineSeq.value === '\r' ? [13] : [];
+      payloadBytes = hexToBytes(raw).concat(seqBytes);
+      payloadText = bytesToHex(payloadBytes);
+    } else {
+      payloadText = raw + newlineSeq.value;
+      payloadBytes = Array.from(new TextEncoder().encode(payloadText));
+    }
     if (session.type === 'serial') {
       await invoke('serial_write', {
         port: session.config.port,
-        data: raw + newlineSeq.value,
+        data: payloadText,
+        bytes: hexMode ? payloadBytes : undefined,
       });
     } else {
       await invoke('net_write', {
         key: session.id,
-        data: raw + newlineSeq.value,
+        data: payloadText,
+        bytes: hexMode ? payloadBytes : undefined,
       });
     }
-    appendGlobalMessage(session, 'TX', raw);
-    // 字节统计按实际写出的 UTF-8 长度计（含换行符）；原始字节随消息保留供十六进制显示
-    const txBytes = Array.from(new TextEncoder().encode(raw + newlineSeq.value));
-    appendSessionMessage(session, 'TX', raw, txBytes);
+    appendGlobalMessage(session, 'TX', payloadText);
+    appendSessionMessage(session, 'TX', payloadText, payloadBytes);
     session.messageCount += 1;
-    session.txBytes += txBytes.length;
+    session.txBytes += payloadBytes.length;
   } catch (e) {
     session.statusMsg = `发送失败: ${e}`;
     notify(session.statusMsg);
