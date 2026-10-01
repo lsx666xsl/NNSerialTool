@@ -45,7 +45,6 @@ onUnmounted(() => {
         <SelfSelect
           v-model="busSessionFilter"
           :options="[{ value: 'all', label: '全部' }, ...sessions.map((s) => ({ value: s.id, label: s.name }))]"
-          placeholder="全部"
         />
       </div>
       <div class="filter-col">
