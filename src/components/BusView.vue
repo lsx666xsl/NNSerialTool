@@ -6,6 +6,7 @@ import {
   busKeyword,
   busSessionFilter,
   filteredGlobalMessages,
+  globalMessages,
   sessions,
 } from '../stores/appStore';
 import { readStorage, writeStorage } from '../utils/storage';
@@ -70,17 +71,17 @@ onUnmounted(() => {
       >
         自动滚动
       </button>
-    </div>
-
-    <!-- 列头：指示各列内容类型（与消息行同栅格对齐） -->
-    <div class="list-header">
-      <span class="time">时间</span>
-      <span class="source">来源</span>
-      <span class="direction">方向</span>
-      <span class="payload">内容</span>
+      <button class="ghost-btn filter-clear" title="清空总线全部消息记录" @click="globalMessages = []">清空总线</button>
     </div>
 
     <div class="message-list" ref="listEl">
+      <!-- 列头置于滚动容器内部（sticky 吸顶）：与数据行共享同一内边距，任何状态下像素级对齐 -->
+      <div class="list-header">
+        <span class="h-time">时间</span>
+        <span class="h-source">来源</span>
+        <span class="h-dir">方向</span>
+        <span class="h-payload">内容</span>
+      </div>
       <div v-if="filteredGlobalMessages.length === 0" class="empty-box">暂无匹配消息。</div>
       <div v-for="message in filteredGlobalMessages" :key="message.id" class="message-line" :class="message.direction.toLowerCase()">
         <span class="time">{{ message.time }}</span>
@@ -103,7 +104,7 @@ onUnmounted(() => {
 .filter-bar {
   display: grid;
   /* minmax(0,1fr)：允许三列收缩到内容以下，长连接名靠省略号截断，窄窗口不溢出 */
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto auto;
   gap: 10px;
   align-items: end;
 }
@@ -138,16 +139,17 @@ onUnmounted(() => {
 
 /* 列头：与消息行同栅格对齐，指示各列内容类型 */
 .list-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: grid;
   grid-template-columns: minmax(0, 104px) minmax(0, 120px) 46px minmax(60px, 1fr);
   gap: 10px;
-  padding: 6px 10px;
+  padding: 6px 8px;
   font-size: 12px;
   color: #6b7280;
-  border: 1px solid rgba(23, 26, 33, 0.1);
-  border-bottom: none;
-  border-radius: 6px 6px 0 0;
-  background: rgba(248, 249, 251, 0.9);
+  border-bottom: 1px solid rgba(23, 26, 33, 0.12);
+  background: #f8f9fb;
   user-select: none;
 }
 
