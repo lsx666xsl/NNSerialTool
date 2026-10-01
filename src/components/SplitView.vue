@@ -3,10 +3,12 @@ import MessageFlow from './MessageFlow.vue';
 import {
   autoScroll,
   clearSessionReceive,
+  closeConnection,
   cycleNewline,
   exportSessionLog,
   filterHexInput,
   newlineLabel,
+  openConnection,
   sendData,
   sendSettings,
   splitSessions,
@@ -17,6 +19,12 @@ import {
 // 工具带与单屏同序（自动滚动 / 自动换行 / 自动发送+间隔 / HEX / 导出 / 清空），
 // 仅少"拓展命令"开关（拓展命令只在单屏生效）；时间戳与 RX/TX 前缀开关在连接列表卡片上设置。
 // HEX 切换与输入过滤复用 appStore 共享实现（与单屏行为一致）。
+
+// 面板标题右侧状态点即连接开关（与连接列表状态灯同款交互）
+const toggleConnection = (session: import('../types').ConnectionSession) => {
+  if (session.status === 'connected') closeConnection(session);
+  else openConnection(session);
+};
 </script>
 
 <template>
@@ -30,7 +38,13 @@ import {
             <h3>{{ session.name }}</h3>
             <p>{{ session.status === 'connected' ? '已连接' : '未连接' }}</p>
           </div>
-          <span class="status-dot" :class="session.status"></span>
+          <!-- 状态点即连接开关：绿=已连接（点击关闭），红=未连接（点击打开），与连接列表同款 -->
+          <button
+            class="status-dot"
+            :class="session.status"
+            :title="session.status === 'connected' ? '点击关闭连接' : '点击打开连接'"
+            @click="toggleConnection(session)"
+          ></button>
         </div>
         <MessageFlow
           :messages="session.messages"
@@ -175,16 +189,29 @@ import {
   color: #6b7280;
 }
 
+/* 状态点即连接开关：与连接列表状态灯同款（12px、hover 放大、红/绿发光） */
 .status-dot {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 999px;
-  background: #9ca3af;
   flex-shrink: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.status-dot:hover {
+  transform: scale(1.3);
 }
 
 .status-dot.connected {
   background: #3fa35c;
+  box-shadow: 0 0 6px rgba(63, 163, 92, 0.55);
+}
+
+.status-dot.closed {
+  background: #d4534f;
+  box-shadow: 0 0 6px rgba(212, 83, 79, 0.45);
 }
 
 /* 紧凑工具带：与单屏同序的精简版（自动滚动/自动换行/自动发送/HEX/导出/清空） */
