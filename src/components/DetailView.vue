@@ -300,7 +300,9 @@ const onResizeHandleDown = (e: PointerEvent) => {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  /* 行距不统一：接收区↔工具带用工具带 margin-top 控制，
+     工具带↔发送框只留工具带自身 padding-bottom（与虚线到按钮上边距等高） */
+  gap: 0;
 }
 
 /* 工具带：自动滚动/导出/清空/自动换行/自动发送组/拓展命令开关 */
@@ -310,6 +312,7 @@ const onResizeHandleDown = (e: PointerEvent) => {
   gap: 8px;
   flex-wrap: wrap;
   padding: 6px 2px;
+  margin-top: 10px;
   border-top: 1px dashed rgba(23, 26, 33, 0.12);
   flex-shrink: 0;
 }
