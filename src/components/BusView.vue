@@ -1,16 +1,39 @@
 <script setup lang="ts">
+import { nextTick, onUnmounted, ref, watch } from 'vue';
 import SelfSelect from './SelfSelect.vue';
 import {
   busDirectionFilter,
   busKeyword,
   busSessionFilter,
   filteredGlobalMessages,
-  globalMessages,
   sessions,
 } from '../stores/appStore';
+import { readStorage, writeStorage } from '../utils/storage';
 
-// 总线视图：所有连接的收发记录汇成一条时间线，支持按连接/方向/关键字过滤。
-// 过滤栏：左中右三列均分，标签在控件上方（纵向排列更整齐）。
+// 总线视图：已加入总览的会话收发记录汇成一条时间线。
+// 过滤栏：连接（含常驻"全部"）/ 方向 / 关键字 + 自动滚动开关；
+// 列表上方有列头（时间 / 来源 / 方向 / 内容），列表随新消息自动滚动（可关）。
+
+// 总线自动滚动：默认开启（日志流视图），可点击关闭；持久化到 localStorage
+const busAutoScroll = ref(readStorage<boolean>('st-bus-autoscroll', true));
+watch(busAutoScroll, (v) => writeStorage('st-bus-autoscroll', v));
+
+const listEl = ref<HTMLElement | null>(null);
+
+// 新消息到达（或过滤结果变化）时滚动到底部
+watch(
+  () => filteredGlobalMessages.value[filteredGlobalMessages.value.length - 1]?.id,
+  async () => {
+    if (!busAutoScroll.value) return;
+    await nextTick();
+    const el = listEl.value;
+    if (el) el.scrollTop = el.scrollHeight;
+  }
+);
+
+onUnmounted(() => {
+  writeStorage('st-bus-autoscroll', busAutoScroll.value);
+});
 </script>
 
 <template>
@@ -20,7 +43,7 @@ import {
         <span class="filter-label">连接</span>
         <SelfSelect
           v-model="busSessionFilter"
-          :options="sessions.map((s) => ({ value: s.id, label: s.name }))"
+          :options="[{ value: 'all', label: '全部' }, ...sessions.map((s) => ({ value: s.id, label: s.name }))]"
           placeholder="全部"
         />
       </div>
@@ -39,10 +62,25 @@ import {
         <span class="filter-label">关键字</span>
         <input v-model="busKeyword" placeholder="搜索内容或连接名" />
       </div>
-      <button class="ghost-btn filter-clear" @click="globalMessages = []">清空总线</button>
+      <button
+        class="ghost-btn filter-clear bus-autoscroll"
+        :class="{ on: busAutoScroll }"
+        :title="busAutoScroll ? '自动滚动已开启（新消息自动滚到底部）' : '自动滚动已关闭，点击开启'"
+        @click="busAutoScroll = !busAutoScroll"
+      >
+        自动滚动
+      </button>
     </div>
 
-    <div class="message-list">
+    <!-- 列头：指示各列内容类型（与消息行同栅格对齐） -->
+    <div class="list-header">
+      <span class="time">时间</span>
+      <span class="source">来源</span>
+      <span class="direction">方向</span>
+      <span class="payload">内容</span>
+    </div>
+
+    <div class="message-list" ref="listEl">
       <div v-if="filteredGlobalMessages.length === 0" class="empty-box">暂无匹配消息。</div>
       <div v-for="message in filteredGlobalMessages" :key="message.id" class="message-line" :class="message.direction.toLowerCase()">
         <span class="time">{{ message.time }}</span>
@@ -61,7 +99,7 @@ import {
   gap: 14px;
 }
 
-/* 过滤栏：左中右三列均分（清空按钮自适应宽），标签在控件上方 */
+/* 过滤栏：左中右三列均分（自动滚动按钮自适应宽），标签在控件上方 */
 .filter-bar {
   display: grid;
   /* minmax(0,1fr)：允许三列收缩到内容以下，长连接名靠省略号截断，窄窗口不溢出 */
@@ -91,16 +129,39 @@ import {
   align-self: end;
 }
 
+/* 总线自动滚动开关：开启态高亮（与工具带按钮主题一致） */
+.bus-autoscroll.on {
+  background: rgba(59, 111, 212, 0.12);
+  color: #3563c2;
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.3);
+}
+
+/* 列头：与消息行同栅格对齐，指示各列内容类型 */
+.list-header {
+  display: grid;
+  grid-template-columns: minmax(0, 104px) minmax(0, 120px) 46px minmax(60px, 1fr);
+  gap: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #6b7280;
+  border: 1px solid rgba(23, 26, 33, 0.1);
+  border-bottom: none;
+  border-radius: 6px 6px 0 0;
+  background: rgba(248, 249, 251, 0.9);
+  user-select: none;
+}
+
 .message-list {
   flex: 1;
   min-height: 0;
   overflow: auto;
   border: 1px solid rgba(23, 26, 33, 0.1);
-  border-radius: 6px;
+  border-radius: 0 0 6px 6px;
   /* 跟随主题：浅色浅底深字 */
   background: #f8f9fb;
   color: #23262b;
   padding: 10px;
+  font-family: Consolas, 'Courier New', monospace;
   font-size: 12px;
   /* 总线同样是数据信息区，滚动条保留并美化 */
   scrollbar-width: thin;
@@ -132,8 +193,7 @@ import {
   word-break: break-all;
 }
 
-/* 来源/时间列：超长或被压缩时截断显示，不折行、不横向溢出 */
-.message-line .time,
+/* 来源列：长会话名截断显示，不折行 */
 .message-line .source {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -182,5 +242,11 @@ import {
 
 .theme-dark .message-line.tx .direction {
   color: #6ca7e8;
+}
+
+.theme-dark .list-header {
+  background: #222427;
+  border-color: rgba(255, 255, 255, 0.09);
+  color: #9da0a8;
 }
 </style>
