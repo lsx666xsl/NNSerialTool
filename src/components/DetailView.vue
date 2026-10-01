@@ -135,6 +135,14 @@ const newlineOptions = [
               导出
             </button>
             <button class="ghost-btn" @click="clearSessionReceive(activeSession)">清空</button>
+            <button
+              class="tb-toggle hex-send-toggle"
+              :class="{ on: activeSession.sendHexMode ?? false }"
+              title="发送框十六进制模式：输入按 HEX 解析以原始字节发送（仅接受 0-9 A-F 与空格）"
+              @click="toggleSendHex(activeSession)"
+            >
+              HEX
+            </button>
             <label class="toolbar-item" title="发送时附加的换行符">
               自动换行
               <SelfSelect v-model="sendSettings.newline" :full="false" :options="newlineOptions" />
@@ -163,16 +171,8 @@ const newlineOptions = [
             </button>
           </div>
 
-          <!-- 发送栏：HEX/文本切换 + 输入框（左）+ 右侧竖排（拓展命令开关在发送按钮上方，底边与输入框对齐） -->
+          <!-- 发送栏：输入框（左）+ 发送按钮 -->
           <div class="send-row" :style="{ height: sendHeight + 'px' }">
-            <button
-              class="tb-toggle hex-send-toggle"
-              :class="{ on: activeSession.sendHexMode ?? false }"
-              :title="activeSession.sendHexMode ? '当前为十六进制发送（仅接受 0-9 A-F 与空格）' : '切换为十六进制发送模式'"
-              @click="toggleSendHex(activeSession)"
-            >
-              HEX
-            </button>
             <textarea
               v-model="activeSession.sendText"
               class="send-input"
@@ -327,19 +327,20 @@ const newlineOptions = [
 
 /* 发送区：上边界拖拽手柄 + 发送行；拖高时接收框自动收缩（flex 互斥） */
 
-/* 发送框 HEX 模式开关：小号矩形，激活态蓝色 */
+/* 发送框 HEX 模式开关：与工具带按钮同款主题，激活态蓝色 */
 .hex-send-toggle {
-  padding: 4px 10px;
-  font-size: 11px;
-  border-radius: 5px;
-  align-self: flex-end;
-  margin-bottom: 6px;
+  padding: 8px 14px;
+  font-size: 13px;
+  border-radius: 6px;
+  background: rgba(23, 26, 33, 0.05);
+  color: #6b7280;
+  box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
 }
 
 .hex-send-toggle.on {
-  background: linear-gradient(180deg, #3b82f6, #2563eb);
-  color: #ffffff;
-  box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+  background: rgba(59, 111, 212, 0.12);
+  color: #3563c2;
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.3);
 }
 
 .send-input {
