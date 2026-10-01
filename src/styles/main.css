@@ -283,6 +283,11 @@ button {
   transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
 
+/* 按钮按压动画：轻微收缩，不过度夸张 */
+button:active:not(:disabled) {
+  transform: scale(0.96);
+}
+
 /* 悬停上浮反馈仅作用于明确的动作按钮；
    图标/开关/内嵌箭头（addr-arrow、mini-toggle、x-btn、status-dot 等）一律不做位移 */
 .primary-btn:hover:not(:disabled),
@@ -318,6 +323,14 @@ button:disabled {
 
 .danger-btn:hover {
   background: linear-gradient(180deg, #c74541, #b93b37);
+}
+
+.primary-btn:active:not(:disabled),
+.ghost-btn:active:not(:disabled),
+.danger-btn:active:not(:disabled),
+.tb-toggle:active:not(:disabled),
+.mini-toggle:active:not(:disabled) {
+  transform: translateY(-1px) scale(0.96);
 }
 
 .ghost-btn {

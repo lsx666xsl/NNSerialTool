@@ -117,6 +117,24 @@ export const quickCommands = ref<QuickCommand[]>(
 );
 watch(quickCommands, (v) => writeStorage('st-quick-cmds', v), { deep: true });
 
+// 自动换行当前项的显示文本（按钮文案用）
+export const newlineLabel = computed(() => {
+  const map: Record<SendSettings['newline'], string> = {
+    none: 'None',
+    lf: '\\n',
+    crlf: '\\r\\n',
+    cr: '\\r',
+  };
+  return map[sendSettings.value.newline];
+});
+
+// 循环切换自动换行：None → LF → CRLF → CR → None
+export const cycleNewline = () => {
+  const order: SendSettings['newline'][] = ['none', 'lf', 'crlf', 'cr'];
+  const i = order.indexOf(sendSettings.value.newline);
+  sendSettings.value.newline = order[(i + 1) % order.length];
+};
+
 const newlineSeq = computed(() => {
   const table: Record<SendSettings['newline'], string> = { none: '', lf: '\n', crlf: '\r\n', cr: '\r' };
   return table[sendSettings.value.newline];

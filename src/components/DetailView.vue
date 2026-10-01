@@ -1,8 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import MessageFlow from './MessageFlow.vue';
-import NumberInput from './NumberInput.vue';
-import SelfSelect from './SelfSelect.vue';
 import { bytesToHex, hexToBytes } from '../utils/format';
 import {
   activeSession,
@@ -10,7 +8,9 @@ import {
   autoScroll,
   clearSessionReceive,
   closeConnection,
+  cycleNewline,
   exportSessionLog,
+  newlineLabel,
   openConnection,
   quickCommands,
   removeQuickCommand,
@@ -88,13 +88,6 @@ const onResizeHandleDown = (e: PointerEvent) => {
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
 };
-
-const newlineOptions = [
-  { value: 'none', label: '无' },
-  { value: 'lf', label: '\\n' },
-  { value: 'crlf', label: '\\r\\n' },
-  { value: 'cr', label: '\\r' },
-];
 </script>
 
 <template>
@@ -161,24 +154,35 @@ const newlineOptions = [
             >
               HEX
             </button>
-            <label class="toolbar-item" title="发送时附加的换行符">
-              自动换行
-              <SelfSelect v-model="sendSettings.newline" :full="false" :options="newlineOptions" />
-            </label>
-            <!-- 自动发送组：与自动换行同栏 -->
-            <label class="auto-send-group" title="按设定的间隔自动发送发送框中的内容（作用于开启时的会话）">
-              <input type="checkbox" v-model="sendSettings.loopSend" />
+            <button
+              class="tb-toggle newline-cycle"
+              :class="{ on: sendSettings.newline !== 'none' }"
+              title="点击循环切换发送时附加的换行符"
+              @click="cycleNewline()"
+            >
+              自动换行: {{ newlineLabel }}
+            </button>
+            <!-- 自动发送开关：开启后旁边显示可键入的间隔输入（同行元素右移） -->
+            <button
+              class="tb-toggle"
+              :class="{ on: sendSettings.loopSend }"
+              title="按设定的间隔自动发送发送框中的内容（作用于开启时的会话）"
+              @click="sendSettings.loopSend = !sendSettings.loopSend"
+            >
               自动发送
-              <NumberInput
-                v-model="sendSettings.loopInterval"
-                :min="10"
-                :max="600000"
-                :step="10"
+            </button>
+            <template v-if="sendSettings.loopSend">
+              <input
                 class="auto-interval"
-                @click.stop
+                :value="sendSettings.loopInterval"
+                type="number"
+                min="10"
+                max="600000"
+                title="自动发送间隔（毫秒），手动键入修改"
+                @change="(e) => (sendSettings.loopInterval = Math.min(600000, Math.max(10, Number((e.target as HTMLInputElement).value) || 1000)))"
               />
-              ms
-            </label>
+              <span class="toolbar-item">ms</span>
+            </template>
             <button
               class="tb-toggle toolbar-end"
               :class="{ on: cmdStripVisible }"

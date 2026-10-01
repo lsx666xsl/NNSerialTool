@@ -1,8 +1,15 @@
 <script setup lang="ts">
 import MessageFlow from './MessageFlow.vue';
-import SelfSelect from './SelfSelect.vue';
 import { bytesToHex, hexToBytes } from '../utils/format';
-import { autoScroll, exportSessionLog, sendData, sendSettings, splitSessions } from '../stores/appStore';
+import {
+  autoScroll,
+  cycleNewline,
+  exportSessionLog,
+  newlineLabel,
+  sendData,
+  sendSettings,
+  splitSessions,
+} from '../stores/appStore';
 import type { ConnectionSession } from '../types';
 
 // 分屏视图：勾选的多个连接并排显示，各自独立的接收流、紧凑工具带与发送框。
@@ -51,17 +58,14 @@ const toggleSendHex = (session: ConnectionSession) => {
             自动滚动
           </button>
           <button class="mini-toggle" title="导出当前消息框内容为日志文件" @click="exportSessionLog(session)">导出</button>
-          <SelfSelect
-            v-model="sendSettings.newline"
-            :full="false"
-            :options="[
-              { value: 'none', label: '无' },
-              { value: 'lf', label: '\\n' },
-              { value: 'crlf', label: '\\r\\n' },
-              { value: 'cr', label: '\\r' },
-            ]"
-            title="发送时附加的换行符"
-          />
+          <button
+            class="mini-toggle newline-cycle"
+            :class="{ on: sendSettings.newline !== 'none' }"
+            title="点击循环切换发送时附加的换行符"
+            @click="cycleNewline()"
+          >
+            换行: {{ newlineLabel }}
+          </button>
           <button
             class="mini-toggle"
             :class="{ on: session.sendHexMode ?? false }"
