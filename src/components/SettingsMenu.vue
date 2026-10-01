@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
 import SelfSelect from './SelfSelect.vue';
 import { defaultLogDir, fontFamily, fontSize, logDir, notify, systemFonts, themeMode } from '../stores/appStore';
-import { checking, detailOpen, runUpdateCheck } from '../stores/updateStore';
+import { checking, detailOpen, appVersion, runUpdateCheck } from '../stores/updateStore';
 
 // 设置菜单：主题三态 + 字号 + 字体 + 日志导出路径（带目录选择器）。
 // 每组均为"标签一行、控件另起一行"的纵向布局；点击菜单外部自动收起。
@@ -93,11 +93,12 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
           <button class="dir-pick" title="选择日志导出目录" @click="pickLogDir">…</button>
         </div>
       </div>
-      <!-- 检查更新：手动触发一次检测，发现新版本会弹出中央详细更新卡片 -->
+      <!-- 检查更新：手动触发一次检测，发现新版本会弹出中央详细更新卡片；下方显示当前版本号 -->
       <div class="settings-group check-group">
         <button class="check-btn" :disabled="checking" @click="onCheckUpdate">
           {{ checking ? '检查中…' : '检查更新' }}
         </button>
+        <span v-if="appVersion" class="version-line">当前版本 v{{ appVersion }}</span>
       </div>
     </div>
   </div>
@@ -215,6 +216,14 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   background: rgba(46, 184, 92, 0.2);
 }
 
+/* 当前版本号：检查更新按钮下方的小字居中 */
+.version-line {
+  font-size: 11px;
+  color: #9ca3af;
+  text-align: center;
+  user-select: text;
+}
+
 /* 深色主题 */
 .theme-dark .icon-btn {
   background: rgba(255, 255, 255, 0.06);
@@ -259,6 +268,10 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   background: rgba(46, 184, 92, 0.14);
   color: #6bc97e;
   box-shadow: inset 0 0 0 1px rgba(46, 184, 92, 0.4);
+}
+
+.theme-dark .version-line {
+  color: #7c828c;
 }
 
 .theme-dark .dir-pick:hover {

@@ -3,8 +3,16 @@
 // 注意：updater 插件返回的 Update 实例必须用 shallowRef（ref 的深度代理会让
 // 插件类的私有字段访问抛 TypeError）。
 import { computed, ref, shallowRef } from 'vue';
+import { getVersion } from '@tauri-apps/api/app';
 import { check, type Update } from '@tauri-apps/plugin-updater';
 import { checkUpdate, type UpdateInfo } from '../utils/update';
+
+// 当前应用版本（tauri.conf.json 的 version，来自核心 app 插件）。
+// 启动即拉取一次；浏览器调试环境无 Tauri API，保持空串（界面隐藏该行）。
+export const appVersion = ref('');
+void getVersion()
+  .then((v) => (appVersion.value = v ?? ''))
+  .catch(() => {});
 
 // 原地更新模式：插件检测结果（桌面环境）
 export const inplaceUpdate = shallowRef<Update | null>(null);
