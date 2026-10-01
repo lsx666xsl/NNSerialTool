@@ -258,26 +258,25 @@ const newlineOptions = [
 
 .button-group {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 12px;
 }
 
 /* 已连接/未连接时标题右侧的删除会话按钮：与连接按钮同款红色样式 */
 .x-session {
-  width: 40px;
-  height: 40px;
+  width: 36px;
   padding: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   border-radius: 6px;
-  background: linear-gradient(180deg, #c74541, #b93b37);
+  background: linear-gradient(180deg, #d4534f, #c74541);
   color: #ffffff;
-  box-shadow: 0 4px 12px rgba(199, 69, 65, 0.3);
+  box-shadow: 0 4px 12px rgba(212, 83, 79, 0.22);
 }
 
 .x-session:hover:not(:disabled) {
-  background: linear-gradient(180deg, #b93b37, #a83330);
+  background: linear-gradient(180deg, #c74541, #b93b37);
   transform: none;
 }
 
