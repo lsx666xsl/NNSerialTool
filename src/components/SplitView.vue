@@ -47,7 +47,7 @@ const toggleSendHex = (session: ConnectionSession) => {
           :filter-tx="session.filterTx ?? true"
           :hex-mode="session.hexMode ?? false"
         />
-        <!-- 紧凑工具带：自动滚动 / 导出 / 自动换行 / HEX（单屏工具带的精简版） -->
+        <!-- 紧凑工具带：顺序与单屏一致（自动滚动 / 自动换行 / HEX / 导出；无拓展命令） -->
         <div class="split-toolbar">
           <button
             class="mini-toggle"
@@ -57,14 +57,13 @@ const toggleSendHex = (session: ConnectionSession) => {
           >
             自动滚动
           </button>
-          <button class="mini-toggle" title="导出当前消息框内容为日志文件" @click="exportSessionLog(session)">导出</button>
           <button
             class="mini-toggle newline-cycle"
             :class="{ on: sendSettings.newline !== 'none' }"
             title="点击循环切换发送时附加的换行符"
             @click="cycleNewline()"
           >
-            换行: {{ newlineLabel }}
+            自动换行: {{ newlineLabel }}
           </button>
           <button
             class="mini-toggle"
@@ -74,6 +73,7 @@ const toggleSendHex = (session: ConnectionSession) => {
           >
             HEX
           </button>
+          <button class="mini-toggle" title="导出当前消息框内容为日志文件" @click="exportSessionLog(session)">导出</button>
         </div>
         <div class="split-send">
           <input

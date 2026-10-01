@@ -128,12 +128,10 @@ const onResizeHandleDown = (e: PointerEvent) => {
             :hex-mode="activeSession.hexMode ?? false"
           />
 
-          <!-- 工具带：顶部虚线即拖拽热区（按住上下拖调整发送框高度，与接收框互斥） -->
+          <!-- 工具带：顶部虚线即拖拽热区（按住上下拖调整发送框高度，与接收框互斥）；
+               顺序：自动滚动 / 自动换行 / 自动发送 / HEX / 导出 / 清空 -->
           <div class="panel-toolbar">
             <div class="toolbar-drag" title="上下拖动调整发送框高度" @pointerdown="onResizeHandleDown"></div>
-
-
-
             <button
               class="tb-toggle"
               :class="{ on: autoScroll }"
@@ -141,18 +139,6 @@ const onResizeHandleDown = (e: PointerEvent) => {
               @click="autoScroll = !autoScroll"
             >
               自动滚动
-            </button>
-            <button class="ghost-btn" title="把当前消息框全部内容（含时间戳/方向标签）导出为日志文件；保存路径可在设置中配置" @click="exportSessionLog(activeSession)">
-              导出
-            </button>
-            <button class="ghost-btn" @click="clearSessionReceive(activeSession)">清空</button>
-            <button
-              class="tb-toggle hex-send-toggle"
-              :class="{ on: activeSession.sendHexMode ?? false }"
-              title="发送框十六进制模式：输入按 HEX 解析以原始字节发送（仅接受 0-9 A-F 与空格）"
-              @click="toggleSendHex(activeSession)"
-            >
-              HEX
             </button>
             <button
               class="tb-toggle newline-cycle"
@@ -184,13 +170,17 @@ const onResizeHandleDown = (e: PointerEvent) => {
               <span class="toolbar-item">ms</span>
             </template>
             <button
-              class="tb-toggle toolbar-end"
-              :class="{ on: cmdStripVisible }"
-              title="显示/隐藏右侧拓展命令栏"
-              @click="cmdStripVisible = !cmdStripVisible"
+              class="tb-toggle hex-send-toggle"
+              :class="{ on: activeSession.sendHexMode ?? false }"
+              title="发送框十六进制模式：输入按 HEX 解析以原始字节发送（仅接受 0-9 A-F 与空格）"
+              @click="toggleSendHex(activeSession)"
             >
-              拓展命令
+              HEX
             </button>
+            <button class="ghost-btn" title="把当前消息框全部内容（含时间戳/方向标签）导出为日志文件；保存路径可在设置中配置" @click="exportSessionLog(activeSession)">
+              导出
+            </button>
+            <button class="ghost-btn" @click="clearSessionReceive(activeSession)">清空</button>
           </div>
 
           <!-- 发送栏：输入框（左）+ 发送按钮 -->
