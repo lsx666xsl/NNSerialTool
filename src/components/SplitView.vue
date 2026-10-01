@@ -1,31 +1,22 @@
 <script setup lang="ts">
 import MessageFlow from './MessageFlow.vue';
-import { bytesToHex, hexToBytes } from '../utils/format';
 import {
   autoScroll,
   clearSessionReceive,
   cycleNewline,
   exportSessionLog,
+  filterHexInput,
   newlineLabel,
   sendData,
   sendSettings,
   splitSessions,
+  toggleSendHex,
 } from '../stores/appStore';
-import type { ConnectionSession } from '../types';
 
 // 分屏视图：勾选的多个连接并排显示，各自独立的接收流、紧凑工具带与发送框。
 // 工具带与单屏同序（自动滚动 / 自动换行 / 自动发送+间隔 / HEX / 导出 / 清空），
 // 仅少"拓展命令"开关（拓展命令只在单屏生效）；时间戳与 RX/TX 前缀开关在连接列表卡片上设置。
-
-// 行内 HEX/文本切换：双向转换内容（字符串⇄HEX 字节流），空内容仅翻转模式
-const toggleSendHex = (session: ConnectionSession) => {
-  const toHex = !(session.sendHexMode ?? false);
-  session.sendHexMode = toHex;
-  if (!session.sendText.trim()) return;
-  session.sendText = toHex
-    ? bytesToHex(Array.from(new TextEncoder().encode(session.sendText)))
-    : new TextDecoder().decode(new Uint8Array(hexToBytes(session.sendText)));
-};
+// HEX 切换与输入过滤复用 appStore 共享实现（与单屏行为一致）。
 </script>
 
 <template>
@@ -94,13 +85,14 @@ const toggleSendHex = (session: ConnectionSession) => {
           >
             HEX
           </button>
-          <button class="mini-toggle" title="导出当前消息框内容为日志文件" @click="exportSessionLog(session)">导出</button>
-          <button class="mini-toggle" title="清空本面板消息" @click="clearSessionReceive(session)">清空</button>
+          <button class="mini-toggle ghost-btn" title="导出当前消息框内容为日志文件" @click="exportSessionLog(session)">导出</button>
+          <button class="mini-toggle ghost-btn" title="清空本面板消息" @click="clearSessionReceive(session)">清空</button>
         </div>
         <div class="split-send">
           <input
             v-model="session.sendText"
             :placeholder="session.sendHexMode ? '十六进制（如 41 42 43）' : '发送数据'"
+            @input="filterHexInput(session, $event)"
             @keyup.enter="sendData(session)"
           />
           <button class="primary-btn" :disabled="session.status !== 'connected'" @click="sendData(session)">发送</button>
@@ -226,9 +218,14 @@ const toggleSendHex = (session: ConnectionSession) => {
   box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.3);
 }
 
-.split-toolbar .self-select {
-  padding: 4px 8px;
+/* 导出/清空：与单屏一致的常亮蓝（不随开关变灰），同款迷你胶囊尺寸 */
+.split-toolbar .ghost-btn {
+  padding: 3px 8px;
   font-size: 11px;
+  border-radius: 999px;
+  background: rgba(59, 111, 212, 0.08);
+  color: #3563c2;
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.14);
 }
 
 .split-send {
@@ -264,5 +261,11 @@ const toggleSendHex = (session: ConnectionSession) => {
   background: rgba(87, 157, 245, 0.16);
   color: #8fbdf7;
   box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.4);
+}
+
+.theme-dark .split-toolbar .ghost-btn {
+  background: rgba(87, 157, 245, 0.12);
+  color: #8fbdf7;
+  box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.18);
 }
 </style>

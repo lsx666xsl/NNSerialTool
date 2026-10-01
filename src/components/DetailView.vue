@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import MessageFlow from './MessageFlow.vue';
-import { bytesToHex, hexToBytes } from '../utils/format';
 import {
   activeSession,
   addQuickCommand,
@@ -10,6 +9,7 @@ import {
   closeConnection,
   cycleNewline,
   exportSessionLog,
+  filterHexInput,
   newlineLabel,
   openConnection,
   quickCommands,
@@ -18,6 +18,7 @@ import {
   sendData,
   sendQuickCommand,
   sendSettings,
+  toggleSendHex,
 } from '../stores/appStore';
 
 // 单屏大视图：接收流 + 工具带 + 发送区（高度可拖拽）+ 右侧拓展命令纵栏。
@@ -46,29 +47,6 @@ const onDividerDown = (e: PointerEvent) => {
 };
 // 右侧拓展命令栏显示开关（默认关闭，需点工具带"拓展命令"按钮开启）
 const cmdStripVisible = ref(false);
-
-// 发送框 HEX/文本切换：双向转换内容（字符串⇄HEX 字节流），空内容仅翻转模式
-const toggleSendHex = (session: import('../types').ConnectionSession) => {
-  const toHex = !(session.sendHexMode ?? false);
-  session.sendHexMode = toHex;
-  if (!session.sendText.trim()) return;
-  session.sendText = toHex
-    ? bytesToHex(Array.from(new TextEncoder().encode(session.sendText)))
-    : new TextDecoder().decode(new Uint8Array(hexToBytes(session.sendText)));
-};
-
-// HEX 模式输入过滤：实时剥除非十六进制字符（允许空格分组）
-const onSendInput = (session: import('../types').ConnectionSession, e: Event) => {
-  if (!(session.sendHexMode ?? false)) return;
-  const el = e.target as HTMLTextAreaElement;
-  const filtered = el.value.replace(/[^0-9a-fA-F ]/g, '');
-  if (filtered !== el.value) {
-    const pos = el.selectionStart;
-    el.value = filtered;
-    session.sendText = filtered;
-    el.setSelectionRange(pos, pos);
-  }
-};
 
 // 发送框高度（可拖动上边界调整；拖高发送框时接收框自动收缩，二者互斥共享空间）
 const sendHeight = ref(64);
@@ -171,7 +149,7 @@ const onResizeHandleDown = (e: PointerEvent) => {
               <span class="toolbar-item">ms</span>
             </template>
             <button
-              class="tb-toggle hex-send-toggle"
+              class="tb-toggle"
               :class="{ on: activeSession.sendHexMode ?? false }"
               title="发送框十六进制模式：输入按 HEX 解析以原始字节发送（仅接受 0-9 A-F 与空格）"
               @click="toggleSendHex(activeSession)"
@@ -199,7 +177,7 @@ const onResizeHandleDown = (e: PointerEvent) => {
               class="send-input"
               rows="2"
               :placeholder="activeSession.sendHexMode ? '输入十六进制（如 41 42 43）' : '输入要发送的数据（Ctrl+回车 发送）'"
-              @input="onSendInput(activeSession, $event)"
+              @input="filterHexInput(activeSession, $event)"
               @keydown.ctrl.enter.prevent="sendData(activeSession)"
             ></textarea>
             <button class="primary-btn send-btn" :disabled="!connected" @click="sendData(activeSession)">发送</button>
@@ -305,7 +283,7 @@ const onResizeHandleDown = (e: PointerEvent) => {
   gap: 0;
 }
 
-/* 工具带：自动滚动/导出/清空/自动换行/自动发送组/拓展命令开关 */
+/* 工具带：自动滚动/自动换行/自动发送/HEX/导出/清空/拓展命令开关 */
 .panel-toolbar {
   display: flex;
   align-items: center;
@@ -324,19 +302,9 @@ const onResizeHandleDown = (e: PointerEvent) => {
   border-radius: 5px;
 }
 
-/* 间隔输入与紧凑按钮同高 */
-.panel-toolbar .auto-interval {
-  width: 72px;
-  padding: 4px 8px;
-  font-size: 12px;
-  border-radius: 5px;
-}
-
-/* 工具带矩形开关：与导出/清空等高（同内边距/字号/圆角），激活态蓝色高亮 */
+/* 工具带矩形开关：几何尺寸（内边距/字号/圆角）由 .panel-toolbar > button 统一控制，
+   此处只管灰/蓝两态配色 */
 .tb-toggle {
-  padding: 8px 14px;
-  font-size: 13px;
-  border-radius: 6px;
   background: rgba(23, 26, 33, 0.05);
   color: #6b7280;
   box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
@@ -366,24 +334,6 @@ const onResizeHandleDown = (e: PointerEvent) => {
   flex-shrink: 0;
 }
 
-/* 发送区：上边界拖拽手柄 + 发送行；拖高时接收框自动收缩（flex 互斥） */
-
-/* 发送框 HEX 模式开关：与工具带按钮同款主题，激活态蓝色 */
-.hex-send-toggle {
-  padding: 8px 14px;
-  font-size: 13px;
-  border-radius: 6px;
-  background: rgba(23, 26, 33, 0.05);
-  color: #6b7280;
-  box-shadow: inset 0 0 0 1px rgba(23, 26, 33, 0.1);
-}
-
-.hex-send-toggle.on {
-  background: rgba(59, 111, 212, 0.12);
-  color: #3563c2;
-  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.3);
-}
-
 .send-input {
   flex: 1;
   /* 允许在窄窗口下收缩；高度拉伸填满整行，底边与发送按钮对齐 */
@@ -393,25 +343,15 @@ const onResizeHandleDown = (e: PointerEvent) => {
   line-height: 1.5;
 }
 
-/* 自动发送组：与自动换行同栏，无边框（同属发送参数区） */
-.auto-send-group {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 13px;
-  color: #3b414b;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.auto-interval {
-  width: 92px;
-  /* 窄窗口下允许收缩（最低 60px），给发送按钮让位，避免发送栏 4px 级横向溢出 */
+/* 自动发送间隔：与紧凑按钮同高，窄窗口下可收缩（最低 60px）让位发送按钮 */
+.panel-toolbar .auto-interval {
+  width: 72px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 5px;
   min-width: 60px;
   flex-shrink: 1;
 }
-
-
 
 /* 工具带顶部拖拽热区：透明覆盖在虚线上，按住上下拖调整发送框高度 */
 .toolbar-drag {
@@ -542,18 +482,8 @@ const onResizeHandleDown = (e: PointerEvent) => {
 }
 
 /* 深色主题 */
-.theme-dark .auto-send-group,
 .theme-dark .toolbar-item {
   color: #9da0a8;
-}
-
-
-.theme-dark .send-resize span {
-  background: rgba(255, 255, 255, 0.18);
-}
-
-.theme-dark .send-resize:hover span {
-  background: rgba(87, 157, 245, 0.6);
 }
 
 .theme-dark .work-panel {

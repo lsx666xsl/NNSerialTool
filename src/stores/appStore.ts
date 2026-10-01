@@ -135,6 +135,31 @@ export const cycleNewline = () => {
   sendSettings.value.newline = order[(i + 1) % order.length];
 };
 
+// 发送框 HEX/文本切换：双向转换内容（字符串⇄HEX 字节流），空内容仅翻转模式。
+// 单屏与分屏工具带共用一份实现。
+export const toggleSendHex = (session: ConnectionSession) => {
+  const toHex = !(session.sendHexMode ?? false);
+  session.sendHexMode = toHex;
+  if (!session.sendText.trim()) return;
+  session.sendText = toHex
+    ? bytesToHex(Array.from(new TextEncoder().encode(session.sendText)))
+    : new TextDecoder().decode(new Uint8Array(hexToBytes(session.sendText)));
+};
+
+// HEX 模式输入过滤：实时剥除非十六进制字符（允许空格分组），并保持光标位置。
+// 直接改 el.value + 回写 session.sendText，配合 v-model 双向不冲突。
+export const filterHexInput = (session: ConnectionSession, e: Event) => {
+  if (!(session.sendHexMode ?? false)) return;
+  const el = e.target as HTMLTextAreaElement | HTMLInputElement;
+  const filtered = el.value.replace(/[^0-9a-fA-F ]/g, '');
+  if (filtered !== el.value) {
+    const pos = el.selectionStart;
+    el.value = filtered;
+    session.sendText = filtered;
+    el.setSelectionRange(pos, pos);
+  }
+};
+
 const newlineSeq = computed(() => {
   const table: Record<SendSettings['newline'], string> = { none: '', lf: '\n', crlf: '\r\n', cr: '\r' };
   return table[sendSettings.value.newline];
