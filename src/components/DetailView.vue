@@ -44,7 +44,7 @@ const onDividerDown = (e: PointerEvent) => {
   window.addEventListener('pointermove', onMove);
   window.addEventListener('pointerup', onUp);
 };
-// 右侧拓展命令栏显示开关（默认开启）
+// 右侧拓展命令栏显示开关（默认关闭，需点工具带"拓展命令"按钮开启）
 const cmdStripVisible = ref(false);
 
 // 发送框 HEX/文本切换：双向转换内容（字符串⇄HEX 字节流），空内容仅翻转模式
@@ -165,7 +165,8 @@ const onResizeHandleDown = (e: PointerEvent) => {
                 min="10"
                 max="600000"
                 title="自动发送间隔（毫秒），手动键入修改"
-                @change="(e) => (sendSettings.loopInterval = Math.min(600000, Math.max(10, Number((e.target as HTMLInputElement).value) || 1000)))"
+                @blur="(e) => (sendSettings.loopInterval = Math.min(600000, Math.max(10, Number((e.target as HTMLInputElement).value) || 1000)))"
+                @keyup.enter="(e) => (e.target as HTMLInputElement).blur()"
               />
               <span class="toolbar-item">ms</span>
             </template>
@@ -181,6 +182,14 @@ const onResizeHandleDown = (e: PointerEvent) => {
               导出
             </button>
             <button class="ghost-btn" @click="clearSessionReceive(activeSession)">清空</button>
+            <button
+              class="tb-toggle toolbar-end"
+              :class="{ on: cmdStripVisible }"
+              title="显示/隐藏右侧拓展命令栏"
+              @click="cmdStripVisible = !cmdStripVisible"
+            >
+              拓展命令
+            </button>
           </div>
 
           <!-- 发送栏：输入框（左）+ 发送按钮 -->

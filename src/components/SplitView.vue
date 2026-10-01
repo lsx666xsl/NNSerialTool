@@ -3,6 +3,7 @@ import MessageFlow from './MessageFlow.vue';
 import { bytesToHex, hexToBytes } from '../utils/format';
 import {
   autoScroll,
+  clearSessionReceive,
   cycleNewline,
   exportSessionLog,
   newlineLabel,
@@ -13,8 +14,8 @@ import {
 import type { ConnectionSession } from '../types';
 
 // 分屏视图：勾选的多个连接并排显示，各自独立的接收流、紧凑工具带与发送框。
-// 工具带为单屏的精简版（分屏面板窄）：自动滚动 / 导出 / 自动换行 / HEX；
-// 时间戳与 RX/TX 前缀开关在连接列表卡片上设置，此处不重复。
+// 工具带与单屏同序（自动滚动 / 自动换行 / 自动发送+间隔 / HEX / 导出 / 清空），
+// 仅少"拓展命令"开关（拓展命令只在单屏生效）；时间戳与 RX/TX 前缀开关在连接列表卡片上设置。
 
 // 行内 HEX/文本切换：双向转换内容（字符串⇄HEX 字节流），空内容仅翻转模式
 const toggleSendHex = (session: ConnectionSession) => {
@@ -47,7 +48,7 @@ const toggleSendHex = (session: ConnectionSession) => {
           :filter-tx="session.filterTx ?? true"
           :hex-mode="session.hexMode ?? false"
         />
-        <!-- 紧凑工具带：顺序与单屏一致（自动滚动 / 自动换行 / HEX / 导出；无拓展命令） -->
+        <!-- 紧凑工具带：顺序与单屏一致（自动滚动 / 自动换行 / 自动发送+间隔 / HEX / 导出 / 清空；无拓展命令） -->
         <div class="split-toolbar">
           <button
             class="mini-toggle"
@@ -65,6 +66,26 @@ const toggleSendHex = (session: ConnectionSession) => {
           >
             自动换行: {{ newlineLabel }}
           </button>
+          <!-- 自动发送开关：开启后旁边显示可键入的间隔输入 -->
+          <button
+            class="mini-toggle"
+            :class="{ on: sendSettings.loopSend }"
+            title="按设定的间隔自动发送本面板发送框中的内容"
+            @click="sendSettings.loopSend = !sendSettings.loopSend"
+          >
+            自动发送
+          </button>
+          <input
+            v-if="sendSettings.loopSend"
+            class="split-interval"
+            :value="sendSettings.loopInterval"
+            type="number"
+            min="10"
+            max="600000"
+            title="自动发送间隔（毫秒），手动键入修改"
+            @blur="(e) => (sendSettings.loopInterval = Math.min(600000, Math.max(10, Number((e.target as HTMLInputElement).value) || 1000)))"
+            @keyup.enter="(e) => (e.target as HTMLInputElement).blur()"
+          />
           <button
             class="mini-toggle"
             :class="{ on: session.sendHexMode ?? false }"
@@ -74,6 +95,7 @@ const toggleSendHex = (session: ConnectionSession) => {
             HEX
           </button>
           <button class="mini-toggle" title="导出当前消息框内容为日志文件" @click="exportSessionLog(session)">导出</button>
+          <button class="mini-toggle" title="清空本面板消息" @click="clearSessionReceive(session)">清空</button>
         </div>
         <div class="split-send">
           <input
@@ -173,12 +195,20 @@ const toggleSendHex = (session: ConnectionSession) => {
   background: #3fa35c;
 }
 
-/* 紧凑工具带：单屏工具带的精简版（自动滚动/导出/自动换行/HEX） */
+/* 紧凑工具带：与单屏同序的精简版（自动滚动/自动换行/自动发送/HEX/导出/清空） */
 .split-toolbar {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 4px 6px;
+}
+
+/* 自动发送间隔输入：随开启内联出现，手动键入（隐藏原生步进按钮），窄宽度不挤压按钮 */
+.split-interval {
+  width: 64px;
+  padding: 3px 6px;
+  font-size: 11px;
+  text-align: center;
 }
 
 .split-toolbar .mini-toggle {
