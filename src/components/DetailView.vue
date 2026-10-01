@@ -307,11 +307,26 @@ const onResizeHandleDown = (e: PointerEvent) => {
 .panel-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   flex-wrap: wrap;
   padding: 6px 2px;
   border-top: 1px dashed rgba(23, 26, 33, 0.12);
   flex-shrink: 0;
+}
+
+/* 工具带按钮紧凑化：只作用于本行，不影响全局其他按钮 */
+.panel-toolbar > button {
+  padding: 4px 10px;
+  font-size: 12px;
+  border-radius: 5px;
+}
+
+/* 间隔输入与紧凑按钮同高 */
+.panel-toolbar .auto-interval {
+  width: 72px;
+  padding: 4px 8px;
+  font-size: 12px;
+  border-radius: 5px;
 }
 
 /* 工具带矩形开关：与导出/清空等高（同内边距/字号/圆角），激活态蓝色高亮 */
