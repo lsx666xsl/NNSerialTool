@@ -1,11 +1,27 @@
 {
-  "version": "0.5.0",
-  "notes": "## 新增\n- 总览：连接筛选常驻「全部」选项；新增自动滚动开关（可点击关闭，状态记忆）\n- 总览：消息列表顶部新增列头（时间 / 来源 / 方向 / 内容），滚动时列头吸顶保持可见；恢复「清空总线」按钮\n- 分屏：每个面板新增与单屏同序的工具带——自动滚动 / 自动换行 / 自动发送 / HEX / 导出 / 清空，自动发送开启后可直接键入间隔时间（10~600000ms 自动钳位）\n- 分屏：面板右上角状态灯改为连接开关（绿色点击断开、红色点击打开），尺寸与状态样式和连接列表一致，与面板标题居中对齐\n- 发送框 HEX 模式：单屏与分屏输入时实时过滤非十六进制字符，行为完全一致\n\n## 修复\n- 单屏：恢复工具带行尾的「拓展命令」显示开关（默认关闭不变）\n- 输入框占位提示文字颜色统一（深浅主题均已核对）\n- 总览：列头与数据行的列对齐误差修复，滚动条出现时不再错位\n\n## 优化\n- 工具带按钮更紧凑（内边距与字号收紧），工具带与发送框间距收紧至与上方等高\n- 分屏「导出」「清空」改为常亮主题蓝，与单屏配色统一\n- 自动发送间隔改失焦校验 + 回车即生效，修正数值钳位不生效的问题",
-  "pub_date": "2026-10-01T16:27:26.983553Z",
+  "version": "0.5.1",
+  "notes": "设置菜单底部新增当前版本号显示。",
+  "pub_date": "2026-10-03T19:17:46.283Z",
   "platforms": {
     "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKzh4bHZjb3FINDRYcGg2eTdBR0ltdTd5ZTFwdC8yb281bVRaR0F3WHpQV2swL1dteVVMLythdHRxVEtPdlhFWDlDTGRKK2EvUDRqSWZpdUJGSVNwcUFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkwODcyMDEzCWZpbGU6Tk5TZXJpYWxUb29sXzAuNS4wX3g2NC1zZXR1cC5leGUKdDBEZHpqYjBBYW92N2wyeDZDQ28rd016amZuZmVvN1NwcVNWdFcweCtjSGc3Zk1mSmhqSEhsZDFpNlNWQkFOM2lkZkE1Tm9sWHFnU05hVTZYd0dKREE9PQo=",
-      "url": "https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/download/v0.5.0/NNSerialTool_0.5.0_x64-setup.exe"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKy9KdGt3cE5zRTcwajJlaUFmRnJ2eEFSSjlTWEp4cXo3eUNCUHNvTHNvYXJ4eDNJNjVmakg1bmJ6cDlGZWdIYkNsYU1WTEJNMXhtZFlvM0hONjVualFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMDU1MDM2CWZpbGU6Tk5TZXJpYWxUb29sXzAuNS4xX3g2NC1zZXR1cC5leGUKSDVCS3g0VkgrUHNldmVLR3ZnM1NSdGV2OTJhL1pQYmM4Vmw4QnpHNFRhMFF0cms5T1g3SzJDZXNRZGlXRXhmVXdwem85SE1kcWV3cVlYZ2V6WnVVQXc9PQo=",
+      "url": "https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/download/v0.5.1/NNSerialTool_0.5.1_x64-setup.exe"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKy9KdGt3cE5zRTcwajJlaUFmRnJ2eEFSSjlTWEp4cXo3eUNCUHNvTHNvYXJ4eDNJNjVmakg1bmJ6cDlGZWdIYkNsYU1WTEJNMXhtZFlvM0hONjVualFBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMDU1MDM2CWZpbGU6Tk5TZXJpYWxUb29sXzAuNS4xX3g2NC1zZXR1cC5leGUKSDVCS3g0VkgrUHNldmVLR3ZnM1NSdGV2OTJhL1pQYmM4Vmw4QnpHNFRhMFF0cms5T1g3SzJDZXNRZGlXRXhmVXdwem85SE1kcWV3cVlYZ2V6WnVVQXc9PQo=",
+      "url": "https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/download/v0.5.1/NNSerialTool_0.5.1_x64-setup.exe"
+    },
+    "linux-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKytZRytvbE1KeS9FamZLN3kwWENsOEoyTkF5NXhlOFBoUW11TlFyNnlLWDlZM0RyNXlyZnJXcHV4WnU3eUZjTElOZHp6TXV3MGQydFFBSVBpZlc1Mmc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMDU1MDYwCWZpbGU6Tk5TZXJpYWxUb29sXzAuNS4xX2FtZDY0LkFwcEltYWdlCm1oTkpzVWNaamRIa1hMdHNVbHFwdE54MjRjUDAzOE02QXdvbGM1Y1NLNjhyOSs0R3hpdkFiSEtZSU1Ib0lVdTFHYlorbmpQMWVuOUh6NXhiT0w5K0J3PT0K",
+      "url": "https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/download/v0.5.1/NNSerialTool_0.5.1_amd64.AppImage"
+    },
+    "linux-x86_64-appimage": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKytZRytvbE1KeS9FamZLN3kwWENsOEoyTkF5NXhlOFBoUW11TlFyNnlLWDlZM0RyNXlyZnJXcHV4WnU3eUZjTElOZHp6TXV3MGQydFFBSVBpZlc1Mmc4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMDU1MDYwCWZpbGU6Tk5TZXJpYWxUb29sXzAuNS4xX2FtZDY0LkFwcEltYWdlCm1oTkpzVWNaamRIa1hMdHNVbHFwdE54MjRjUDAzOE02QXdvbGM1Y1NLNjhyOSs0R3hpdkFiSEtZSU1Ib0lVdTFHYlorbmpQMWVuOUh6NXhiT0w5K0J3PT0K",
+      "url": "https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/download/v0.5.1/NNSerialTool_0.5.1_amd64.AppImage"
+    },
+    "linux-x86_64-deb": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKzNiVTZQSkhRb3ZHUlVBVlB1MnRpN0RDVmlXYnN4RDdmdW9nR2krY2FSVmR0cW9HQ05sUDFLbDNXNE5mZmVpQklFNzZsSWhZZG9NeitrbVdhUkxzcmdBPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkxMDU1MDYwCWZpbGU6Tk5TZXJpYWxUb29sXzAuNS4xX2FtZDY0LmRlYgpnajh5eURhZlJ4OUVhK0lBVDA5MVpsWU9rRGNZbm1mck13UzVYME5wNStBZG9BeEVJaHBEaVBNWjJXTzBsQWZEdVFPS3RMQU04bnNxUDNsVmIyVzVBZz09Cg==",
+      "url": "https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/download/v0.5.1/NNSerialTool_0.5.1_amd64.deb"
     }
   }
 }
