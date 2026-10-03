@@ -1,7 +1,7 @@
 name: Release
 
 # 两种触发方式：
-#   1. 推送 v 开头的 git 标签（v0.6.0）→ 正式发布：构建+签名+自动创建 Release 挂附件
+#   1. 推送 v 开头的 git 标签（如 v0.5.1）→ 正式发布：四平台构建+签名+自动创建 Release 挂附件
 #   2. Actions 页面手动 Run workflow → 验证构建：只出包不上传，产物在运行页 Artifacts 下载
 on:
   push:
@@ -12,15 +12,36 @@ permissions:
   contents: write   # 允许自动创建 Release
 
 jobs:
-  build-windows:
-    runs-on: windows-latest
+  build:
+    strategy:
+      fail-fast: false   # 一个平台失败不影响其他平台继续出包
+      matrix:
+        include:
+          - platform: windows-latest
+            rust-target: ''
+            args: ''
+          - platform: ubuntu-22.04
+            rust-target: ''
+            args: ''
+          - platform: macos-latest
+            rust-target: aarch64-apple-darwin     # Apple Silicon (M 系列)
+            args: '--target aarch64-apple-darwin'
+          - platform: macos-latest
+            rust-target: x86_64-apple-darwin      # Intel Mac
+            args: '--target x86_64-apple-darwin'
+    runs-on: ${{ matrix.platform }}
     env:
-      # 更新签名私钥（配置在仓库 Secrets 里，见 doc/交接与任务进度.md）
+      # 更新签名私钥（配置在仓库 Secrets 里）；私钥为空密码，Secret 缺省时解析为空串即可
       TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      # 私钥为空密码，Secret 未配置时此变量解析为空串，与本机手动构建一致
       TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install Linux system dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev patchelf libudev-dev libfontconfig1-dev pkg-config build-essential file
 
       - uses: actions/setup-node@v4
         with:
@@ -28,6 +49,8 @@ jobs:
           cache: npm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust-target }}
 
       # 缓存 Rust 编译产物，第二次构建起明显提速
       - uses: swatinem/rust-cache@v2
@@ -36,7 +59,7 @@ jobs:
 
       - run: npm ci
 
-      # ---- 正式发布（tag 触发）----
+      # ---- 正式发布（tag 触发）：构建 + 签名 + 创建/追加 Release，含各平台更新器 latest.json ----
       - name: Build and release
         if: startsWith(github.ref, 'refs/tags/')
         uses: tauri-apps/tauri-action@v0
@@ -48,18 +71,24 @@ jobs:
           releaseBody: '设置菜单底部新增当前版本号显示。'
           releaseDraft: false
           prerelease: false
-          # 自动生成 latest.json（含签名）挂到 Release，应用内更新直接可用
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+          args: ${{ matrix.args }}
 
-      # ---- 验证构建（手动触发）----
+      # ---- 验证构建（手动触发）：只出包，产物存到运行页 Artifacts ----
       - name: Verification build
         if: github.event_name == 'workflow_dispatch'
-        run: npm run tauri build
+        run: npm run tauri build -- ${{ matrix.args }}
 
       - name: Upload verification artifacts
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: windows-setup-exe
-          path: src-tauri/target/release/bundle/nsis/*.exe
+          name: ${{ matrix.platform }}-installer
+          path: |
+            src-tauri/target/release/bundle/nsis/*.exe
+            src-tauri/target/release/bundle/dmg/*.dmg
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/*/release/bundle/dmg/*.dmg
+          if-no-files-found: ignore
