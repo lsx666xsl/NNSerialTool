@@ -47,7 +47,7 @@ const toggle = () => {
   const rect = box.getBoundingClientRect();
   // fixed 浮层坐标换算：Chromium（WebView2）fixed 继承根节点 zoom，视觉像素需除以 zoom；
   // WebKitGTK 不继承，除反而错位。具体行为运行时探测，见 utils/zoom.ts。
-  const unit = fixedPxUnit(Number(document.documentElement.style.zoom) || 1);
+  const unit = fixedPxUnit();
   // 视口边界钳制：下方放不下时收缩浮层高度出滚动条；再不够则整体向上展开
   const availBelow = (window.innerHeight - rect.bottom - 10) / unit;
   const availAbove = (rect.top - 10) / unit;

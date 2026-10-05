@@ -56,7 +56,7 @@ const toggleAddr = () => {
   if (!input) return;
   const rect = input.getBoundingClientRect();
   // fixed 浮层坐标换算（同 SelfSelect）：是否除以 zoom 由运行时探测决定，见 utils/zoom.ts
-  const unit = fixedPxUnit(Number(document.documentElement.style.zoom) || 1);
+  const unit = fixedPxUnit();
   const availBelow = (window.innerHeight - rect.bottom - 10) / unit;
   const availAbove = (rect.top - 10) / unit;
   const style: { left?: string; right?: string; minWidth: string; maxHeight: string; top?: string; bottom?: string } = {

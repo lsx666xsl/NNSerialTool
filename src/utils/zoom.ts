@@ -31,10 +31,10 @@ function detectZoomAffectsFixed(): boolean {
 }
 
 /**
- * 视觉像素 → fixed 坐标像素 的除数。
- * @param zoom 根节点当前 zoom 值（document.documentElement.style.zoom）
+ * 视觉像素 → fixed 坐标像素 的除数（内部读取根节点当前 zoom 并完成引擎行为探测）。
  */
-export function fixedPxUnit(zoom: number): number {
+export function fixedPxUnit(): number {
+  const zoom = Number(document.documentElement.style.zoom) || 1;
   if (zoomAffectsFixed === null) zoomAffectsFixed = detectZoomAffectsFixed();
   return zoomAffectsFixed ? zoom : 1;
 }
