@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { appliedTheme } from '../stores/appStore';
+import { fixedPxUnit } from '../utils/zoom';
 
 // 通用自绘下拉组件：替代原生 select（原生弹出层由系统渲染，位置/样式不可控且深色主题下泛白）。
 // 结构：显示框（当前值 + 箭头）+ Teleport 到 body 的浮层（fixed 定位，紧贴显示框下缘）。
@@ -44,27 +45,27 @@ const toggle = () => {
   const box = wrapEl.value;
   if (!box) return;
   const rect = box.getBoundingClientRect();
-  // 根节点带 zoom 整体缩放时，rect 是缩放后的视觉像素，而浮层的 fixed 定位
-  // 解释的是布局像素——需除以 zoom 换算，否则浮层会偏向左上（缩放越小偏得越多）
-  const zoom = Number(document.documentElement.style.zoom) || 1;
+  // fixed 浮层坐标换算：Chromium（WebView2）fixed 继承根节点 zoom，视觉像素需除以 zoom；
+  // WebKitGTK 不继承，除反而错位。具体行为运行时探测，见 utils/zoom.ts。
+  const unit = fixedPxUnit(Number(document.documentElement.style.zoom) || 1);
   // 视口边界钳制：下方放不下时收缩浮层高度出滚动条；再不够则整体向上展开
-  const availBelow = (window.innerHeight - rect.bottom - 10) / zoom;
-  const availAbove = (rect.top - 10) / zoom;
+  const availBelow = (window.innerHeight - rect.bottom - 10) / unit;
+  const availAbove = (rect.top - 10) / unit;
   const style: { left?: string; right?: string; minWidth: string; maxHeight: string; top?: string; bottom?: string } = {
-    minWidth: `${rect.width / zoom}px`,
+    minWidth: `${rect.width / unit}px`,
     maxHeight: '240px',
   };
   // 横向：默认与触发框左对齐；触发框太靠右时改锚右缘，防止 max-content 撑出右边界
   if (rect.right + 160 > window.innerWidth) {
-    style.right = `${(window.innerWidth - rect.right) / zoom}px`;
+    style.right = `${(window.innerWidth - rect.right) / unit}px`;
   } else {
-    style.left = `${rect.left / zoom}px`;
+    style.left = `${rect.left / unit}px`;
   }
   if (availBelow >= 96 || availBelow >= availAbove) {
-    style.top = `${rect.bottom / zoom}px`;
+    style.top = `${rect.bottom / unit}px`;
     style.maxHeight = `${Math.max(96, Math.min(240, availBelow))}px`;
   } else {
-    style.bottom = `${(window.innerHeight - rect.top) / zoom}px`;
+    style.bottom = `${(window.innerHeight - rect.top) / unit}px`;
     style.maxHeight = `${Math.max(96, Math.min(240, availAbove))}px`;
   }
   popStyle.value = style;

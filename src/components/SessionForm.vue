@@ -19,6 +19,7 @@ import {
   stopBits,
 } from '../stores/appStore';
 import type { ConnectionType } from '../types';
+import { fixedPxUnit } from '../utils/zoom';
 
 // 新建会话表单：连接类型切换后展示串口参数或网络参数两套字段。
 // 全部下拉统一使用 SelfSelect 自绘组件（浮层贴合显示框、深浅主题自适配）。
@@ -54,24 +55,24 @@ const toggleAddr = () => {
   const input = addrWrap.value?.querySelector('input');
   if (!input) return;
   const rect = input.getBoundingClientRect();
-  // 根节点 zoom 缩放下 fixed 定位坐标换算（同 SelfSelect）；视口边界钳制高度
-  const zoom = Number(document.documentElement.style.zoom) || 1;
-  const availBelow = (window.innerHeight - rect.bottom - 10) / zoom;
-  const availAbove = (rect.top - 10) / zoom;
+  // fixed 浮层坐标换算（同 SelfSelect）：是否除以 zoom 由运行时探测决定，见 utils/zoom.ts
+  const unit = fixedPxUnit(Number(document.documentElement.style.zoom) || 1);
+  const availBelow = (window.innerHeight - rect.bottom - 10) / unit;
+  const availAbove = (rect.top - 10) / unit;
   const style: { left?: string; right?: string; minWidth: string; maxHeight: string; top?: string; bottom?: string } = {
-    minWidth: `${rect.width / zoom}px`,
+    minWidth: `${rect.width / unit}px`,
     maxHeight: '180px',
   };
   if (rect.right + 160 > window.innerWidth) {
-    style.right = `${(window.innerWidth - rect.right) / zoom}px`;
+    style.right = `${(window.innerWidth - rect.right) / unit}px`;
   } else {
-    style.left = `${rect.left / zoom}px`;
+    style.left = `${rect.left / unit}px`;
   }
   if (availBelow >= 96 || availBelow >= availAbove) {
-    style.top = `${rect.bottom / zoom}px`;
+    style.top = `${rect.bottom / unit}px`;
     style.maxHeight = `${Math.max(96, Math.min(180, availBelow))}px`;
   } else {
-    style.bottom = `${(window.innerHeight - rect.top) / zoom}px`;
+    style.bottom = `${(window.innerHeight - rect.top) / unit}px`;
     style.maxHeight = `${Math.max(96, Math.min(180, availAbove))}px`;
   }
   addrPopStyle.value = style;
