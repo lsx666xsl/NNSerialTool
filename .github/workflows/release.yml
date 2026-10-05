@@ -68,7 +68,7 @@ jobs:
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'NNSerialTool v__VERSION__'
-          releaseBody: '设置菜单底部新增当前版本号显示。'
+          releaseBody: '修复 Linux 下拉浮层在界面缩放下的错位问题。'
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
