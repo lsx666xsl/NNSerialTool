@@ -107,7 +107,9 @@ jobs:
       - name: Download latest.json from release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" --pattern latest.json --output latest.json
+        run: |
+          rm -f latest.json   # 仓库根本就提交了上一版的 latest.json，gh download 拒绝覆盖已存在文件
+          gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" --pattern latest.json --output latest.json
 
       - name: Commit and push
         run: |
