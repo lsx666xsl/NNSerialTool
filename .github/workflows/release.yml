@@ -60,14 +60,15 @@ jobs:
       - run: npm ci
 
       # ---- nn CLI 二进制作为资源随主程序打包，必须先于 tauri build 构建 ----
-      # macOS 交叉编译产物在 target/<triple>/release/，复制到资源路径 target/release/nn
+      # 仓库根无 Cargo.toml（包在 src-tauri/），用 manifest-path 指定；
+      # macOS 交叉编译产物在 target/<triple>/release/，复制到资源路径 src-tauri/target/release/nn
       - name: Build nn CLI
         shell: bash
         run: |
-          cargo build --release --bin nn ${{ matrix.args }}
-          mkdir -p target/release
-          if [ -n "${{ matrix.rust-target }}" ] && [ -f "target/${{ matrix.rust-target }}/release/nn" ]; then
-            cp "target/${{ matrix.rust-target }}/release/nn" target/release/nn
+          cargo build --release --bin nn --manifest-path src-tauri/Cargo.toml ${{ matrix.args }}
+          mkdir -p src-tauri/target/release
+          if [ -n "${{ matrix.rust-target }}" ] && [ -f "src-tauri/target/${{ matrix.rust-target }}/release/nn" ]; then
+            cp "src-tauri/target/${{ matrix.rust-target }}/release/nn" src-tauri/target/release/nn
           fi
 
       # ---- 正式发布（tag 触发）：构建 + 签名 + 创建/追加 Release，含各平台更新器 latest.json ----
