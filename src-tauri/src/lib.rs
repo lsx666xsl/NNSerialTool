@@ -1,10 +1,12 @@
 // ============ 模块声明 ============
 use tauri::Manager;
 
+mod files;
 mod fonts;
 mod net;
 mod serial;
 
+use files::*;
 use fonts::*;
 use net::*;
 use serial::*;
@@ -49,7 +51,24 @@ pub fn run() {
             net_auto_send_start,
             net_auto_send_stop,
             net_local_ips,
+            // 插件文件桥（WebView 无磁盘权限，插件安装/读取/卸载与固件导出走这里）
+            plugin_write_file,
+            plugin_read_text,
+            plugin_list_ids,
+            plugin_remove_dir,
+            read_dialog_file,
+            write_text_file,
         ])
+        .setup(|app| {
+            // 任务栏/标题栏图标偶发变白（窗口重建后图标丢失）的缓解：
+            // 启动时显式重设主窗口图标（取应用默认图标）
+            if let Some(win) = app.get_webview_window("main") {
+                if let Some(icon) = app.default_window_icon().cloned() {
+                    let _ = win.set_icon(icon);
+                }
+            }
+            Ok(())
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| {

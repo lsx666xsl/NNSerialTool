@@ -2,12 +2,14 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue';
 import { open } from '@tauri-apps/plugin-dialog';
 import SelfSelect from './SelfSelect.vue';
+import PluginManager from './PluginManager.vue';
 import { defaultLogDir, fontFamily, fontSize, logDir, notify, systemFonts, themeMode } from '../stores/appStore';
 import { checking, detailOpen, appVersion, runUpdateCheck } from '../stores/updateStore';
 
-// 设置菜单：主题三态 + 字号 + 字体 + 日志导出路径（带目录选择器）。
+// 设置菜单：主题三态 + 字号 + 字体 + 日志导出路径（带目录选择器）+ 插件管理入口。
 // 每组均为"标签一行、控件另起一行"的纵向布局；点击菜单外部自动收起。
 const settingsOpen = ref(false);
+const pluginOpen = ref(false);
 
 // 字体下拉：三个预设项在前，其后追加 DirectWrite 枚举的 Windows 已安装字体
 const fontOptions = computed(() => [
@@ -93,6 +95,16 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
           <button class="dir-pick" title="选择日志导出目录" @click="pickLogDir">…</button>
         </div>
       </div>
+      <!-- 插件管理：打开中央管理面板（已安装/市场），打开时收起菜单避免遮罩重叠 -->
+      <div class="settings-group check-group">
+        <button
+          class="plugin-btn"
+          title="管理已安装插件与插件市场"
+          @click="settingsOpen = false; pluginOpen = true"
+        >
+          插件管理
+        </button>
+      </div>
       <!-- 检查更新：手动触发一次检测，发现新版本会弹出中央详细更新卡片；下方显示当前版本号 -->
       <div class="settings-group check-group">
         <button class="check-btn" :disabled="checking" @click="onCheckUpdate">
@@ -101,6 +113,8 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
         <span v-if="appVersion" class="version-line">当前版本 v{{ appVersion }}</span>
       </div>
     </div>
+
+    <PluginManager v-if="pluginOpen" @close="pluginOpen = false" />
   </div>
 </template>
 
@@ -200,6 +214,21 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
 /* 检查更新按钮：设置菜单最底部，通栏 */
 .check-group {
   margin-top: 2px;
+}
+
+/* 插件管理入口：与检查更新同款通栏按钮，蓝色系以示功能入口 */
+.plugin-btn {
+  width: 100%;
+  padding: 8px 0;
+  font-size: 13px;
+  border-radius: 6px;
+  background: rgba(59, 111, 212, 0.1);
+  color: #3563c2;
+  box-shadow: inset 0 0 0 1px rgba(59, 111, 212, 0.3);
+}
+
+.plugin-btn:hover {
+  background: rgba(59, 111, 212, 0.2);
 }
 
 .check-btn {

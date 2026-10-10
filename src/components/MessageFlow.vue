@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { SessionMessage } from '../types';
 import { autoScroll, fontSize } from '../stores/appStore';
 import { bytesToHex } from '../utils/format';
+import { splitLogTags, type LogSeg } from '../utils/logLevel';
 
 // 流式消息区：详情视图与分屏视图共用。
 // 时间戳与 RX/TX 开关只控制"前缀标签"的显隐——数据本身始终显示。
@@ -17,25 +18,40 @@ const props = defineProps<{
   hexMode: boolean;
 }>();
 
-// 全量显示（不过滤数据）：RX/TX/时间戳开关只作用于前缀标签。
-// 注意：不做渲染切片——切片裁剪会让 scrollHeight 突变、干扰自动滚动判定（历史 bug）；
-// 上限 2000 条由 store 裁剪，keyed diff + v-memo 让逐条追加的 diff 成本 O(1)。
-const visibleMessages = computed(() => props.messages);
+// 方向过滤（入队时打标，不补显示）：RX/TX 关闭期间收到的行整行隐藏（数据照常接收与计数，
+// 只是永不入框）；重开只显示之后的新数据。
+const visibleMessages = computed(() => props.messages.filter((m) => !m.hidden));
 
-// 方向前缀是否显示（RX/TX 各自独立开关）
-const showDirTag = (direction: string) =>
-  direction === 'RX' ? props.filterRx : props.filterTx;
+// 每条消息生效的显示开关：优先用入队时刻的快照（开关只影响新数据，
+// 旧消息保持原样——切 HEX/时间戳不再全量翻转历史）；旧消息（无快照）回退 props。
+const msgTs = (m: SessionMessage) => m.snap ? m.snap.ts : props.showTimestamp;
+const msgRx = (m: SessionMessage) => m.snap ? m.snap.rx : props.filterRx;
+const msgTx = (m: SessionMessage) => m.snap ? m.snap.tx : props.filterTx;
+const msgHex = (m: SessionMessage) => m.snap ? m.snap.hex : props.hexMode;
 
-// 纯连续流模式：时间戳 + RX + TX 前缀全关时，去掉行结构，数据按到达顺序连成一段
+// 方向前缀是否显示（RX/TX 各自独立开关，按消息快照）
+const showDirTag = (m: SessionMessage) =>
+  m.direction === 'RX' ? msgRx(m) : msgTx(m);
+
+// 纯连续流模式判定也按"当前开关"（决定整体行结构——行式 or 行内连续流）。
+// 旧消息混排时以当前开关决定布局（行结构属于容器，不属于单条消息）。
 const isContinuous = computed(() => !props.showTimestamp && !props.filterRx && !props.filterTx);
 
 // 单条消息的显示文本：HEX 模式渲染字节流（连续流模式补尾随空格保证块间分隔）
 const renderText = (m: SessionMessage) => {
-  if (props.hexMode && m.raw) {
+  if (msgHex(m) && m.raw) {
     const hex = bytesToHex(m.raw);
     return isContinuous.value ? hex + ' ' : hex;
   }
   return m.text;
+};
+
+// 日志等级着色：文本模式下行首 [INFO]--/[ERROR]-- 等标签切出来染成徽标
+// （与固件 NNPrintf.h 的 [LEVEL]-- 前缀格式对齐）；HEX 模式/无标签返回 null 走纯文本。
+// v-memo 已保证只在新消息或开关切换时重算，无需缓存。
+const logSegmentsOf = (m: SessionMessage): LogSeg[] | null => {
+  if (msgHex(m) && m.raw) return null;
+  return splitLogTags(m.text);
 };
 
 const flowEl = ref<HTMLElement | null>(null);
@@ -73,19 +89,19 @@ const onWheel = (e: WheelEvent) => {
   fontSize.value = Math.min(22, Math.max(11, next));
 };
 
-// 勾选自动滚动：只要有新消息就滚到最底下（无条件跟随）；同时刷新溢出状态
+// 勾选自动滚动：只要有新消息就滚到最底下（无条件跟随）；同时刷新溢出状态。
+// flush:'post'：与本批 DOM 更新同一帧内完成滚动写入——此前的 nextTick+rAF 两级
+// 延迟会让滚动落在"下一批补丁中途"的容器高度上，高频流（TCP 每秒 60+ 批）时
+// 底部边缘持续 ±数行抖动。
 watch(
   () => visibleMessages.value[visibleMessages.value.length - 1]?.id,
-  async () => {
-    await nextTick();
-    // rAF 里滚动，避免在同一帧内“改 DOM → 读布局”反复交错
-    requestAnimationFrame(() => {
-      const el = flowEl.value;
-      if (!el) return;
-      if (autoScroll.value) el.scrollTop = el.scrollHeight;
-      updateScrollState();
-    });
-  }
+  () => {
+    const el = flowEl.value;
+    if (!el) return;
+    if (autoScroll.value) el.scrollTop = el.scrollHeight;
+    updateScrollState();
+  },
+  { flush: 'post' }
 );
 
 // 容器尺寸变化（窗口缩放/分屏布局切换）时同步溢出状态
@@ -109,21 +125,31 @@ onUnmounted(() => resizeObserver?.disconnect());
     >
       <div v-if="visibleMessages.length === 0" class="flow-empty">等待接收数据</div>
       <!-- 两行式布局：第一行元信息（时间戳/方向），第二行起为数据正文；时间戳与 RX/TX 独立 -->
-      <!-- v-memo：消息内容创建后不变；影响渲染的开关为 时间戳/方向前缀显隐 →
-           未变化的行整行跳过 diff，高频接收时每帧 diff 成本从 O(全量 2000 行) 降为 O(1) -->
+      <!-- v-memo 依赖各消息自己的快照字段：开关切换只让"无快照的旧消息"重算，
+           带快照的消息按入队时规则固定不变（历史不翻转、不重渲染） -->
       <div
         v-for="message in visibleMessages"
         :key="message.id"
-        v-memo="[showTimestamp, filterRx, filterTx, hexMode]"
+        v-memo="[msgTs(message), msgRx(message), msgTx(message), msgHex(message)]"
         class="flow-line"
         :class="message.direction.toLowerCase()"
       >
         <div class="flow-meta">
-          <span v-if="showTimestamp && message.time" class="flow-time">{{ message.time }}</span>
-          <span v-if="showDirTag(message.direction)" class="flow-dir">{{ message.direction }}</span>
+          <span v-if="showTimestamp && msgTs(message) && message.time" class="flow-time">{{ message.time }}</span>
+          <span v-if="showDirTag(message)" class="flow-dir">{{ message.direction }}</span>
         </div>
-        <!-- 十六进制模式：显示原始字节 HEX 流（无原始字节的旧消息回退文本） -->
-        <div class="flow-text">{{ renderText(message) }}</div>
+        <!-- 十六进制模式：显示原始字节 HEX 流（无原始字节的旧消息回退文本）；
+             文本模式：行首 [LEVEL]-- 等级标签染成彩色徽标（双主题显眼） -->
+        <div class="flow-text">
+          <template v-if="logSegmentsOf(message)">
+            <span
+              v-for="(seg, i) in logSegmentsOf(message)"
+              :key="i"
+              :class="seg.cls ? ['lv-tag', 'lv-' + seg.cls] : undefined"
+            >{{ seg.text }}</span>
+          </template>
+          <template v-else>{{ renderText(message) }}</template>
+        </div>
       </div>
     </div>
     <button
@@ -240,6 +266,44 @@ onUnmounted(() => resizeObserver?.disconnect());
   color: #2b6cb0;
 }
 
+/* 日志等级徽标：行首 [INFO]/[ERROR] 等标签着色（浅色主题，与 RX/TX 方向色同族） */
+.lv-tag {
+  font-weight: 600;
+  padding: 0 3px;
+  border-radius: 3px;
+}
+
+.lv-trace {
+  color: #8a9099;
+  background: rgba(138, 144, 153, 0.14);
+}
+
+.lv-debug {
+  color: #2b6cb0;
+  background: rgba(43, 108, 176, 0.12);
+}
+
+.lv-info {
+  color: #2e8b45;
+  background: rgba(46, 139, 69, 0.12);
+}
+
+.lv-warn {
+  color: #b7791f;
+  background: rgba(183, 121, 31, 0.14);
+}
+
+.lv-error {
+  color: #c53030;
+  background: rgba(197, 48, 48, 0.12);
+}
+
+/* FATAL 最醒目：实心色块反白 */
+.lv-fatal {
+  color: #ffffff;
+  background: #c53030;
+}
+
 /* 纯连续流模式（时间戳+RX+TX 全关）：去掉行结构，块转行内，
    数据按到达顺序连成一段（数据内的真实换行符仍会换行） */
 .message-flow.continuous {
@@ -287,6 +351,37 @@ onUnmounted(() => resizeObserver?.disconnect());
 
 .theme-dark .flow-line.tx .flow-dir {
   color: #6ca7e8;
+}
+
+/* 深色主题等级徽标：提亮一档 */
+.theme-dark .lv-trace {
+  color: #6f737a;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.theme-dark .lv-debug {
+  color: #6ca7e8;
+  background: rgba(108, 167, 232, 0.14);
+}
+
+.theme-dark .lv-info {
+  color: #6bc97e;
+  background: rgba(107, 201, 126, 0.14);
+}
+
+.theme-dark .lv-warn {
+  color: #f6c453;
+  background: rgba(246, 196, 83, 0.14);
+}
+
+.theme-dark .lv-error {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.16);
+}
+
+.theme-dark .lv-fatal {
+  color: #1a1b1e;
+  background: #f87171;
 }
 
 .theme-dark .flow-empty {

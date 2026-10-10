@@ -17,7 +17,7 @@ import { toasts } from '../stores/appStore';
   top: 18%;
   left: 50%;
   transform: translateX(-50%);
-  z-index: 200;
+  z-index: 300; /* 全局最顶层：中央通知必须压过一切弹窗（遮罩 200）与下拉 */
   display: flex;
   flex-direction: column;
   align-items: center;

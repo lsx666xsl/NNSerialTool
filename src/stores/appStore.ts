@@ -17,6 +17,8 @@ import type {
 import { readStorage, writeStorage } from '../utils/storage';
 import { bytesToHex, decodeBytes, hexToBytes, nowText, todayText } from '../utils/format';
 import { netSessionName } from '../utils/session';
+import { dispatchRawData, setAppBridge, setTheme } from '../plugins/host';
+import { crumb } from '../debug/stall-watchdog';
 
 // ==================================================================
 // 单例应用状态仓：整个应用只有一份，各组件直接 import 使用。
@@ -49,6 +51,7 @@ export const globalMessages = ref<GlobalMessage[]>([]);
 export const activeSessionId = ref<string>('');
 export const selectedSessionIds = ref<string[]>([]);
 export const viewMode = ref<import('../types').ViewMode>('detail');
+watch(viewMode, (v) => crumb('viewMode -> ' + v));
 
 // ---------- 主题：浅色 / 深色 / 系统 ----------
 // themeMode 是用户的选择，appliedTheme 是最终落到 DOM 上的类名；
@@ -61,6 +64,9 @@ export const appliedTheme = computed<import('../types').AppliedTheme>(() =>
   themeMode.value === 'system' ? (systemDark.value ? 'dark' : 'light') : themeMode.value
 );
 watch(themeMode, (mode) => writeStorage('st-theme', mode));
+// 主题同步到插件宿主：插件画布取色跟随应用深浅色（不做插件独立主题）
+// immediate：启动即深色时也要同步首值，否则宿主停在默认 light、插件画布白底
+watch(appliedTheme, (t) => setTheme(t), { immediate: true });
 
 // ---------- 显示与日志偏好 ----------
 export const showTimestamp = ref(readStorage<boolean>('st-timestamp', true));
@@ -211,19 +217,25 @@ let unlistenAutoSendStopped: UnlistenFn | undefined;
 // 把当前流式消息框按会话当前的显示开关原样导出（所见即所得）。
 // 文件名 = 端口号或 IP_端口 + 导出时刻（串口：COM3_…；网络：127.0.0.1_9000_…）。
 // 目录 = 设置里配置的日志导出路径；留空 = exe 所在目录下的 log（安装目录随应用走）。
+// 内容 = 消息框所见即所导：逐条按入队时刻的开关快照渲染（时间戳/RX/TX 前缀/HEX 与界面
+// 显示完全一致，无快照旧消息回退当前开关）；不加任何额外头或统计行。成功弹 toast 告知位置。
 export const exportSessionLog = async (session: ConnectionSession) => {
   if (session.messages.length === 0) {
-    session.statusMsg = '当前没有消息可导出';
+    notify('当前没有消息可导出');
     return;
   }
-  const withTs = session.showTimestamp ?? true;
-  const lines = session.messages.map((m) => {
-    let line = '';
-    if (withTs) line += `[${m.time}] `;
-    line += `[${m.direction}] `;
-    return line + m.text;
-  });
-  const header = `==== 导出 ${session.name} | ${nowText()} | ${session.messages.length} 条 ====` + String.fromCharCode(10);
+  const lines = session.messages
+    .filter((m) => !m.hidden) // 所见即所导：方向关闭期间隐藏的行不导出
+    .map((m) => {
+      const ts = m.snap ? m.snap.ts : (session.showTimestamp ?? true);
+      const dir = m.snap ? (m.direction === 'RX' ? m.snap.rx : m.snap.tx) : true;
+      const hex = m.snap ? m.snap.hex : (session.hexMode ?? false);
+      let line = '';
+      if (ts) line += `${m.time} `;
+      if (dir) line += `${m.direction} `;
+      line += hex && m.raw ? bytesToHex(m.raw) : m.text;
+      return line;
+    });
   // 端点标识：串口用端口号（COM3），网络用 IP_端口；时间戳精确到秒，文件名唯一
   const endpoint =
     session.type === 'serial'
@@ -235,11 +247,11 @@ export const exportSessionLog = async (session: ConnectionSession) => {
     const path = await invoke<string>('serial_log_write', {
       dir: logDir.value.trim() || null,
       filename,
-      text: header + lines.join(String.fromCharCode(10)) + String.fromCharCode(10),
+      text: lines.join(String.fromCharCode(10)) + String.fromCharCode(10),
     });
-    session.statusMsg = `已导出 ${session.messages.length} 条到 ${path}`;
+    notify(`日志已保存到 ${path}`);
   } catch (e) {
-    session.statusMsg = `导出失败: ${e}`;
+    notify(`导出失败: ${e}`);
   }
 };
 
@@ -269,6 +281,15 @@ const appendSessionMessage = (session: ConnectionSession, direction: MessageDire
     direction,
     text,
     raw: bytes,
+    // 固化入队时刻的显示开关：HEX/时间戳/方向前缀只对新数据生效，旧消息保持原样；
+    // 方向显示关闭期间入队的行标记 hidden（不补显示：重开后只显示新数据，隐藏期数据不入框）
+    snap: {
+      ts: session.showTimestamp ?? true,
+      rx: session.filterRx ?? true,
+      tx: session.filterTx ?? true,
+      hex: session.hexMode ?? false,
+    },
+    hidden: direction === 'RX' ? !(session.filterRx ?? true) : !(session.filterTx ?? true),
   };
   session.messages.push(message);
 
@@ -489,6 +510,7 @@ export const createSession = () => {
         filterTx: true,
       };
 
+  crumb('session create ' + session.name);
   sessions.value.push(session);
   // 关键：从响应式数组取回代理对象再使用——
   // 局部变量 session 是原始对象，直接改它的 status 不会触发 UI 更新（状态不同步 bug 的根因）
@@ -662,6 +684,9 @@ export const sendData = async (session: ConnectionSession, textOverride?: string
 export const clearSessionReceive = (session: ConnectionSession) => {
   session.messages = [];
   session.messageCount = 0;
+  // 清空同时归零收发字节计数（隐藏会话不经过此路径，计数保留）
+  session.rxBytes = 0;
+  session.txBytes = 0;
 };
 
 // ---------- 消息转发 ----------
@@ -790,39 +815,82 @@ const onSystemThemeChange = (e: MediaQueryListEvent) => {
 // 高波特率下 RX 事件频率可达每秒数百次，逐条渲染会造成卡顿；
 // 按会话累积文本，16ms（一帧）批量刷入消息流——显示粒度极限，转发也随之整批进行。
 // raw 为原始数据（用于转发透传），prefix 为显示前缀（如 TCP 来源地址），二者分离保证转发不带显示标记。
-const pendingRx = new Map<string, { session: ConnectionSession; raw: string; prefix: string; bytes?: number[] }>();
-let rxFlushTimer: ReturnType<typeof setTimeout> | undefined;
+// 字节用 chunks 分块收集、flush 时一次拼接：此前 concat 每批全量拷贝，突发大流量下 O(n²)。
+const pendingRx = new Map<string, { session: ConnectionSession; raw: string; prefix: string; chunks?: number[][] }>();
+let rxFlushScheduled = false;
+
+// 合帧调度与渲染帧对齐（rAF）：延迟稳定为一帧、无定时器精度抖动
+// （Windows 定时器精度 ~15.6ms，setTimeout(16) 实际落点会抖）；后台标签页 rAF 自动暂停，
+// 回前台立即补发，与原定时器方案的后台行为等价
+const scheduleRxFlush = () => {
+  if (rxFlushScheduled) return;
+  rxFlushScheduled = true;
+  requestAnimationFrame(() => {
+    rxFlushScheduled = false;
+    flushPendingRx();
+  });
+};
 
 const flushPendingRx = () => {
-  rxFlushTimer = undefined;
-  for (const { session, raw, prefix, bytes } of pendingRx.values()) {
+  rxFlushScheduled = false;
+  for (const { session, raw, prefix, chunks } of pendingRx.values()) {
+    let bytes: number[] | undefined;
+    if (chunks) {
+      if (chunks.length === 1) bytes = chunks[0];
+      else {
+        bytes = [];
+        for (const c of chunks) for (const b of c) bytes.push(b);
+      }
+    }
     const display = prefix + raw;
     session.messageCount += 1;
     appendGlobalMessage(session, 'RX', display);
     appendSessionMessage(session, 'RX', display, bytes);
     forwardIfConfigured(session, raw);
+    // 插件管线与消息流同帧合批：每会话每 16ms 至多一次派发，
+    // 高波特率下逐事件派发会让订阅插件（如 Hello 的整段重渲染）把主线程打死
+    if (bytes && bytes.length > 0) dispatchRawData(session.id, session.name, bytes);
   }
   pendingRx.clear();
 };
 
 const enqueueRx = (session: ConnectionSession, raw: string, prefix = '', bytes?: number[]) => {
-  const item = pendingRx.get(session.id);
-  if (item) {
-    item.raw += raw;
-    if (bytes) item.bytes = (item.bytes ?? []).concat(bytes);
-  } else {
-    pendingRx.set(session.id, { session, raw, prefix, bytes: bytes ? [...bytes] : undefined });
+  let item = pendingRx.get(session.id);
+  if (!item) {
+    item = { session, raw: '', prefix, chunks: undefined };
+    pendingRx.set(session.id, item);
   }
-  if (!rxFlushTimer) rxFlushTimer = setTimeout(flushPendingRx, 16);
+  item.raw += raw;
+  if (bytes) (item.chunks ??= []).push(bytes);
+  scheduleRxFlush();
 };
 
 // TX 合帧：自动发送由 Rust 线程直接写出（绕过前端 sendData），通过 auto-sent 事件回填 TX 记录
-const pendingTx = new Map<string, { session: ConnectionSession; raw: string; bytes?: number[] }>();
-let txFlushTimer: ReturnType<typeof setTimeout> | undefined;
+// 字节同样 chunks 分块收集（同 enqueueRx，防 concat O(n²)）
+const pendingTx = new Map<string, { session: ConnectionSession; raw: string; chunks?: number[][] }>();
+let txFlushScheduled = false;
+
+// TX 合帧同样 rAF 对齐（与 RX 同帧节奏）
+const scheduleTxFlush = () => {
+  if (txFlushScheduled) return;
+  txFlushScheduled = true;
+  requestAnimationFrame(() => {
+    txFlushScheduled = false;
+    flushPendingTx();
+  });
+};
 
 const flushPendingTx = () => {
-  txFlushTimer = undefined;
-  for (const { session, raw, bytes } of pendingTx.values()) {
+  txFlushScheduled = false;
+  for (const { session, raw, chunks } of pendingTx.values()) {
+    let bytes: number[] | undefined;
+    if (chunks) {
+      if (chunks.length === 1) bytes = chunks[0];
+      else {
+        bytes = [];
+        for (const c of chunks) for (const b of c) bytes.push(b);
+      }
+    }
     session.messageCount += 1;
     appendGlobalMessage(session, 'TX', raw);
     appendSessionMessage(session, 'TX', raw, bytes);
@@ -831,21 +899,49 @@ const flushPendingTx = () => {
 };
 
 const enqueueTx = (session: ConnectionSession, raw: string, bytes?: number[]) => {
-  const item = pendingTx.get(session.id);
-  if (item) {
-    item.raw += raw;
-    if (bytes) item.bytes = (item.bytes ?? []).concat(bytes);
-  } else {
-    pendingTx.set(session.id, { session, raw, bytes: bytes ? [...bytes] : undefined });
+  let item = pendingTx.get(session.id);
+  if (!item) {
+    item = { session, raw: '', chunks: undefined };
+    pendingTx.set(session.id, item);
   }
-  if (!txFlushTimer) txFlushTimer = setTimeout(flushPendingTx, 16);
+  item.raw += raw;
+  if (bytes) (item.chunks ??= []).push(bytes);
+  scheduleTxFlush();
 };
 
 const findSerialSessionByPort = (port: string) =>
   sessions.value.find((item) => item.type === 'serial' && item.config.port === port);
 
+// ---------- 插件发送直通（'send' 权限的落点） ----------
+// 与 sendData 的差异：插件给的是原始字节，无文本编码环节；TX 记录按 HEX 呈现。
+const sendRawBytes = async (sessionId: string, bytes: number[]) => {
+  const session = sessions.value.find((item) => item.id === sessionId);
+  if (!session) throw new Error('会话不存在');
+  if (session.status !== 'connected') throw new Error('会话未连接');
+  if (session.type === 'serial') {
+    await invoke('serial_write', { port: session.config.port, data: '', bytes });
+  } else {
+    await invoke('net_write', { key: session.id, data: '', bytes });
+  }
+  session.txBytes += bytes.length;
+  session.messageCount += 1;
+  appendSessionMessage(session, 'TX', bytesToHex(bytes), bytes);
+};
+
 // 装配事件监听与定时器，App.vue 在 onMounted 调用一次。
 export const initApp = async () => {
+  // 插件宿主服务桥：必须在任何数据事件可能到达之前就绪
+  const sessionSnapshots = () =>
+    sessions.value.map((s) => ({ id: s.id, name: s.name, type: s.type, status: s.status }));
+  setAppBridge({
+    sessions: sessionSnapshots,
+    onSessions: (cb) =>
+      // 以"会话 id:状态"拼串为键做浅监听：新建/断开/更名都会触发，深度对象变化不误触
+      watch(() => sessions.value.map((s) => `${s.id}:${s.status}:${s.name}`).join('|'), () => cb(sessionSnapshots())),
+    sendRaw: sendRawBytes,
+    notify,
+  });
+
   // 清理后端残留连接：页面重载/HMR 会清空前端会话列表，但后端的串口句柄与
   // 网络监听不会自动释放——不清理会出现"明明没使用却绑定失败 (10048)"的假占用
   await invoke('serial_close_all').catch(() => {});
@@ -960,17 +1056,8 @@ export const disposeApp = () => {
   systemDarkQuery.removeEventListener('change', onSystemThemeChange);
   clearInterval(pollTimer);
   void stopLoop();
-  // 刷掉尚未落盘的合帧缓冲，保证最后一批数据不丢
-  if (rxFlushTimer) {
-    clearTimeout(rxFlushTimer);
-    rxFlushTimer = undefined;
-  }
+  // 刷掉尚未落盘的合帧缓冲，保证最后一批数据不丢（rAF 调度无需清理挂起句柄）
   flushPendingRx();
-  // 刷掉尚未落盘的 TX 合帧缓冲
-  if (txFlushTimer) {
-    clearTimeout(txFlushTimer);
-    txFlushTimer = undefined;
-  }
   flushPendingTx();
   unlistenSerialData?.();
   unlistenSerialDisconnect?.();

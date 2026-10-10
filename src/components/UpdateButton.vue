@@ -6,10 +6,13 @@ import {
   currentVersion,
   detailOpen,
   hasUpdate,
+  historyLoading,
   inplaceUpdate,
   latestVersion,
+  openDetailCard,
+  versionHistory,
 } from '../stores/updateStore';
-import { openReleasePage } from '../utils/update';
+import { groupReleaseNotes, openReleasePage, type ReleaseGroup } from '../utils/update';
 import { relaunch } from '@tauri-apps/plugin-process';
 
 // 版本更新：入口在标题栏应用名右侧（绿色「更新」徽标，仅检测到新版本时显示）。
@@ -32,6 +35,22 @@ const simpleLog = computed(() => {
   return lines.length > 5 ? `${head}\n… 点击查看完整更新日志` : head;
 });
 
+// 详细卡片的分版本视图：优先展示"当前版本 → 最新版本"的每个 Release；
+// 历史拉取失败时回退为单条最新版说明（同样走归类解析）。
+// 每条说明解析成 新功能/优化/修复/文档 分类小节，没归上类的原文显示。
+const displayEntries = computed<Array<{ version: string; date: string; groups: ReleaseGroup[]; raw: string }>>(() => {
+  if (versionHistory.value.length > 0) {
+    return versionHistory.value.map((entry) => ({
+      version: entry.version,
+      date: entry.date,
+      groups: groupReleaseNotes(entry.notes),
+      raw: entry.notes,
+    }));
+  }
+  const notes = changelog.value;
+  return notes ? [{ version: '', date: '', groups: groupReleaseNotes(notes), raw: notes }] : [];
+});
+
 // 下载完成后安装并重启
 const installAndRestart = async () => {
   phase.value = 'install';
@@ -51,7 +70,7 @@ const doUpdate = async () => {
   if (!inplaceUpdate.value) {
     // 浏览器调试环境回退：打开 Release 下载页
     try {
-      await openReleasePage(`https://github.com/lsx666xsl/Tauri-NNSerialTool/releases/latest`);
+      await openReleasePage(`https://github.com/lsx666xsl/NNSerialTool/releases/latest`);
     } catch {
       /* 打开浏览器失败忽略 */
     }
@@ -115,10 +134,10 @@ const notifyCancelled = () => {
 
 <template>
   <div v-if="hasUpdate" class="update-wrap" @click.stop>
-    <button class="update-btn" title="发现新版本" @click="detailOpen = true">更新</button>
+    <button class="update-btn" title="发现新版本" @click="openDetailCard()">更新</button>
 
     <!-- 悬停简易日志浮层：点击打开中央详细卡片；详细卡片打开期间隐藏 -->
-    <div v-show="!detailOpen" class="update-pop" @click="detailOpen = true">
+    <div v-show="!detailOpen" class="update-pop" @click="openDetailCard()">
       <p class="up-title">发现新版本 v{{ latestVersion }}</p>
       <pre class="up-log">{{ simpleLog }}</pre>
       <p class="up-hint">点击查看完整更新日志</p>
@@ -148,7 +167,27 @@ const notifyCancelled = () => {
         <p class="up-card-sub">当前版本 v{{ currentVersion }} → 最新版本 v{{ latestVersion }}</p>
         <p class="up-card-label">{{ phase === 'download' ? '正在下载更新' : '更新内容' }}</p>
         <div class="up-card-log" :class="{ downloading: phase === 'download' }">
-          <pre class="up-log">{{ phase === 'download' ? '正在从更新源下载新版本安装包，完成后将自动安装并重启…' : changelog }}</pre>
+          <pre v-if="phase === 'download'" class="up-log">正在从更新源下载新版本安装包，完成后将自动安装并重启…</pre>
+          <p v-else-if="historyLoading" class="up-history-loading">正在获取分版本更新日志…</p>
+          <div v-else-if="displayEntries.length" class="up-history">
+            <section v-for="(entry, idx) in displayEntries" :key="entry.version || `latest-${idx}`" class="up-ver">
+              <div v-if="entry.version" class="up-ver-head">
+                <span class="up-ver-name">v{{ entry.version }}</span>
+                <span class="up-ver-date">{{ entry.date }}</span>
+              </div>
+              <!-- 分类别小节：只显示有内容的分类，没有则整版回退原文 -->
+              <div v-if="entry.groups.length" class="up-ver-body">
+                <div v-for="group in entry.groups" :key="group.kind" class="up-group">
+                  <span class="up-group-tag" :class="`tag-${group.kind}`">{{ group.label }}</span>
+                  <ul class="up-group-items">
+                    <li v-for="(item, i) in group.items" :key="i">{{ item }}</li>
+                  </ul>
+                </div>
+              </div>
+              <pre v-else class="up-log">{{ entry.raw || '（该版本未填写更新说明）' }}</pre>
+            </section>
+          </div>
+          <pre v-else class="up-log">（本次发布未填写更新说明）</pre>
         </div>
         <div v-if="phase === 'download'" class="up-progress">
           <div class="up-progress-bar" :style="{ width: progress + '%' }"></div>
@@ -258,7 +297,7 @@ const notifyCancelled = () => {
 
 .up-card {
   position: relative;
-  width: 460px;
+  width: 520px;
   max-width: calc(100vw - 48px);
   max-height: calc(100vh - 96px);
   overflow: auto;
@@ -344,13 +383,170 @@ const notifyCancelled = () => {
   border: 1px solid rgba(23, 26, 33, 0.1);
   border-radius: 8px;
   background: rgba(248, 249, 251, 0.8);
-  max-height: 240px;
+  max-height: min(46vh, 420px);
   overflow: auto;
+}
+
+/* 分版本更新历史：版本大标题 + 分类小节（新功能/优化/修复…），区域内部滚动 */
+.up-history-loading {
+  margin: 0;
+  padding: 14px 0;
+  font-size: 12px;
+  color: #8a9099;
+  text-align: center;
+}
+
+.up-ver + .up-ver {
+  margin-top: 4px;
+  padding-top: 10px;
+  border-top: 1px dashed rgba(23, 26, 33, 0.14);
+}
+
+.up-ver-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.up-ver-name {
+  font-size: 14px;
+  font-weight: 700;
+  color: #23262b;
+}
+
+.up-ver-date {
+  font-size: 11px;
+  color: #8a9099;
+}
+
+.up-ver-body {
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.up-group {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.up-group-tag {
+  flex-shrink: 0;
+  padding: 0 8px;
+  font-size: 11px;
+  line-height: 1.7;
+  font-weight: 600;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.tag-feature {
+  color: #2e8b45;
+  background: rgba(46, 139, 69, 0.12);
+}
+
+.tag-improve {
+  color: #2b6cb0;
+  background: rgba(59, 111, 212, 0.12);
+}
+
+.tag-fix {
+  color: #b7791f;
+  background: rgba(183, 121, 31, 0.14);
+}
+
+.tag-docs {
+  color: #6b7280;
+  background: rgba(107, 114, 128, 0.14);
+}
+
+.tag-other {
+  color: #8a9099;
+  background: rgba(138, 144, 153, 0.14);
+}
+
+.up-group-items {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.up-group-items li {
+  position: relative;
+  padding-left: 12px;
+  font-size: 12px;
+  line-height: 1.7;
+  color: #23262b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.up-group-items li::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0.66em;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: rgba(23, 26, 33, 0.35);
 }
 
 .up-card.theme-dark .up-card-log {
   background: #1e1f22;
   border-color: rgba(255, 255, 255, 0.1);
+}
+
+.theme-dark .up-history-loading {
+  color: #7c828c;
+}
+
+.theme-dark .up-ver + .up-ver {
+  border-top-color: rgba(255, 255, 255, 0.14);
+}
+
+.theme-dark .up-ver-name {
+  color: #f4f4f6;
+}
+
+.theme-dark .up-ver-date {
+  color: #7c828c;
+}
+
+.theme-dark .tag-feature {
+  color: #6bc97e;
+  background: rgba(107, 201, 126, 0.16);
+}
+
+.theme-dark .tag-improve {
+  color: #6ca7e8;
+  background: rgba(108, 167, 232, 0.16);
+}
+
+.theme-dark .tag-fix {
+  color: #d9a441;
+  background: rgba(217, 164, 65, 0.16);
+}
+
+.theme-dark .tag-docs {
+  color: #9da0a8;
+  background: rgba(157, 160, 168, 0.16);
+}
+
+.theme-dark .tag-other {
+  color: #7c828c;
+  background: rgba(124, 130, 140, 0.16);
+}
+
+.theme-dark .up-group-items li {
+  color: #d6d9de;
+}
+
+.theme-dark .up-group-items li::before {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .up-card-log.downloading {

@@ -5,7 +5,7 @@
 import { computed, ref, shallowRef } from 'vue';
 import { getVersion } from '@tauri-apps/api/app';
 import { check, type Update } from '@tauri-apps/plugin-updater';
-import { checkUpdate, type UpdateInfo } from '../utils/update';
+import { checkUpdate, fetchVersionHistory, type UpdateInfo, type VersionHistory } from '../utils/update';
 
 // 当前应用版本（tauri.conf.json 的 version，来自核心 app 插件）。
 // 启动即拉取一次；浏览器调试环境无 Tauri API，保持空串（界面隐藏该行）。
@@ -33,6 +33,32 @@ export const currentVersion = computed(
   () => inplaceUpdate.value?.currentVersion ?? apiInfo.value?.currentVersion ?? ''
 );
 export const changelog = computed(() => inplaceUpdate.value?.body ?? apiInfo.value?.changelog ?? '');
+
+// ---------- 分版本更新历史（懒加载） ----------
+// 详细卡片打开时才请求：当前版本 → 最新版本之间的每个 Release 说明。
+// 拉取成功按"当前版本号"缓存（会话内不重复请求）；失败置空，下次打开重试。
+export const versionHistory = ref<VersionHistory[]>([]);
+export const historyLoading = ref(false);
+let historyLoadedFor = '';
+
+const loadVersionHistory = async () => {
+  const current = currentVersion.value;
+  if (!current || historyLoading.value || (historyLoadedFor === current && versionHistory.value.length > 0)) return;
+  historyLoading.value = true;
+  try {
+    const list = await fetchVersionHistory(current);
+    versionHistory.value = list;
+    if (list.length > 0) historyLoadedFor = current;
+  } finally {
+    historyLoading.value = false;
+  }
+};
+
+// 打开详细卡片：同时懒加载分版本历史（失败静默，卡片内回退显示最新版说明）
+export const openDetailCard = () => {
+  detailOpen.value = true;
+  if (hasUpdate.value) void loadVersionHistory();
+};
 
 // 执行一次检测：桌面优先 updater 插件（原地更新），失败回退 GitHub API。
 // 返回 'update' | 'latest' | 'error' 供调用方提示。

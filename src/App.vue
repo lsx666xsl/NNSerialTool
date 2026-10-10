@@ -1,6 +1,9 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref, watchEffect } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watchEffect } from 'vue';
 import { appliedTheme, disposeApp, fontFamilyStack, initApp, viewMode } from './stores/appStore';
+import { readStorage, writeStorage } from './utils/storage';
+import { initPlugins } from './plugins';
+import { resolveView } from './plugins/registry';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import logoUrl from './assets/logo.png';
 
@@ -28,15 +31,24 @@ const appWindow = (() => {
 const winMinimize = () => void appWindow?.minimize().catch(() => {});
 const winToggleMaximize = () => void appWindow?.toggleMaximize().catch(() => {});
 const winClose = () => void appWindow?.close().catch(() => {});
-import BusView from './components/BusView.vue';
-import DetailView from './components/DetailView.vue';
-import ForwardView from './components/ForwardView.vue';
+
+// 当前视图组件：经注册表解析（内置四视图 + 插件注册视图），未知键回退单屏
+const activeView = computed(() => resolveView(viewMode.value) ?? resolveView('detail'));
+
+// ---------- 左侧面板折叠 ----------
+// 折叠后消息/波形区占满整宽；状态持久化，重启恢复
+const SIDEBAR_KEY = 'st-sidebar-collapsed';
+const sidebarCollapsed = ref(readStorage<boolean>(SIDEBAR_KEY, false));
+const toggleSidebar = () => {
+  sidebarCollapsed.value = !sidebarCollapsed.value;
+  writeStorage(SIDEBAR_KEY, sidebarCollapsed.value);
+};
+
 import SessionForm from './components/SessionForm.vue';
 import SessionList from './components/SessionList.vue';
 import SettingsMenu from './components/SettingsMenu.vue';
 import ToastHost from './components/ToastHost.vue';
 import UpdateButton from './components/UpdateButton.vue';
-import SplitView from './components/SplitView.vue';
 import ViewSwitch from './components/ViewSwitch.vue';
 
 // App.vue 只负责布局骨架与生命周期装配；
@@ -46,6 +58,7 @@ onMounted(() => {
   window.addEventListener('resize', updateUiScale);
   updateUiScale();
   void initApp();
+  void initPlugins();
 });
 
 onUnmounted(() => {
@@ -78,10 +91,17 @@ onUnmounted(() => {
       </div>
     </div>
     <div class="app-body">
-    <aside class="sidebar">
+    <aside class="sidebar" :class="{ collapsed: sidebarCollapsed }" v-show="!sidebarCollapsed">
       <SessionForm />
       <SessionList />
     </aside>
+    <!-- 折叠手柄：贴在侧栏/主区交界，侧栏隐藏后仍留在最左侧作为展开入口 -->
+    <button
+      class="sidebar-handle"
+      :class="{ 'is-collapsed': sidebarCollapsed }"
+      :title="sidebarCollapsed ? '展开连接面板' : '收起连接面板'"
+      @click="toggleSidebar"
+    >{{ sidebarCollapsed ? '>' : '<' }}</button>
 
     <section class="main-area">
       <header class="toolbar">
@@ -94,10 +114,11 @@ onUnmounted(() => {
         </div>
       </header>
 
-      <DetailView v-if="viewMode === 'detail'" />
-      <SplitView v-else-if="viewMode === 'split'" />
-      <ForwardView v-else-if="viewMode === 'forward'" />
-      <BusView v-else />
+      <!-- keep-alive 缓存全部已用视图：切走时组件进内存缓存（数据持续入缓冲，
+           切回无重建空白与卡顿；大数据量下来回切换不重挂载）。内置四视图 + 插件视图统一缓存 -->
+      <KeepAlive>
+        <component :is="activeView.component" v-if="activeView" :key="activeView.id" />
+      </KeepAlive>
     </section>
     </div>
     <!-- 中央通知（INFO 提示上浮消失） -->

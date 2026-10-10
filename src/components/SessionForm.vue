@@ -133,7 +133,7 @@ const onCustomBaudBlur = () => {
   <section class="panel">
     <div class="section-title">
       <h2>新建连接会话</h2>
-      <button class="ghost-btn" title="刷新串口与网卡列表" @click="refreshPorts">
+      <button class="small-btn" title="刷新串口与网卡列表" @click="refreshPorts">
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="23 4 23 10 17 10"></polyline>
           <polyline points="1 20 1 14 7 14"></polyline>

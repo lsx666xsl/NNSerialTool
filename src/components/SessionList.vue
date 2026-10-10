@@ -168,10 +168,10 @@ const onBaudChange = async (session: import('../types').ConnectionSession, e: Ev
             <button
               class="mini-toggle"
               :class="{ on: session.hexMode ?? false }"
-              title="十六进制显示开关（亮起=HEX，灰色=字符串）"
+              title="消息显示 HEX（亮起=HEX，灰色=字符串；只影响新收到的数据）"
               @click.stop="session.hexMode = !(session.hexMode ?? false)"
             >
-              十六进制
+              RX HEX
             </button>
           </span>
           <span class="msg-count">{{ session.messageCount }} 条</span>

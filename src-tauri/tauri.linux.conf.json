@@ -1,0 +1,11 @@
+{
+  "bundle": {
+    "resources": ["target/release/nn"],
+    "linux": {
+      "deb": {
+        "postInstallScript": "./linux/postinstall.sh",
+        "postRemoveScript": "./linux/postremove.sh"
+      }
+    }
+  }
+}

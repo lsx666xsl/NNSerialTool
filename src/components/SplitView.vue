@@ -93,11 +93,27 @@ const toggleConnection = (session: import('../types').ConnectionSession) => {
           />
           <button
             class="mini-toggle"
+            :class="{ on: session.filterRx ?? true }"
+            title="显示 RX 行（关闭=接收照常但不显示）"
+            @click="session.filterRx = !(session.filterRx ?? true)"
+          >
+            RX
+          </button>
+          <button
+            class="mini-toggle"
+            :class="{ on: session.filterTx ?? true }"
+            title="显示 TX 行（关闭=发送照常但不显示）"
+            @click="session.filterTx = !(session.filterTx ?? true)"
+          >
+            TX
+          </button>
+          <button
+            class="mini-toggle"
             :class="{ on: session.sendHexMode ?? false }"
             title="发送框十六进制模式：输入按 HEX 解析以原始字节发送"
             @click="toggleSendHex(session)"
           >
-            HEX
+            TX HEX
           </button>
           <button class="mini-toggle ghost-btn" title="导出当前消息框内容为日志文件" @click="exportSessionLog(session)">导出</button>
           <button class="mini-toggle ghost-btn" title="清空本面板消息" @click="clearSessionReceive(session)">清空</button>

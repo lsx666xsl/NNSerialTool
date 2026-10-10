@@ -150,11 +150,27 @@ const onResizeHandleDown = (e: PointerEvent) => {
             </template>
             <button
               class="tb-toggle"
+              :class="{ on: activeSession.filterRx ?? true }"
+              title="显示 RX 行（关闭=接收照常但不显示在消息框）"
+              @click="activeSession.filterRx = !(activeSession.filterRx ?? true)"
+            >
+              RX
+            </button>
+            <button
+              class="tb-toggle"
+              :class="{ on: activeSession.filterTx ?? true }"
+              title="显示 TX 行（关闭=发送照常但不显示在消息框）"
+              @click="activeSession.filterTx = !(activeSession.filterTx ?? true)"
+            >
+              TX
+            </button>
+            <button
+              class="tb-toggle"
               :class="{ on: activeSession.sendHexMode ?? false }"
               title="发送框十六进制模式：输入按 HEX 解析以原始字节发送（仅接受 0-9 A-F 与空格）"
               @click="toggleSendHex(activeSession)"
             >
-              HEX
+              TX HEX
             </button>
             <button class="ghost-btn" title="把当前消息框全部内容（含时间戳/方向标签）导出为日志文件；保存路径可在设置中配置" @click="exportSessionLog(activeSession)">
               导出

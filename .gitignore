@@ -39,3 +39,6 @@ AGENTS.md
 # 隔离编译验证目录
 /src-tauri/target-verify/
 .tauri/
+
+# 本地测试脚本（e2e 驱动/数据源，不上传）
+scripts/

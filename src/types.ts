@@ -8,7 +8,9 @@ export type SerialPortInfo = {
 // TCP/UDP 已在本阶段接入，与串口会话共用同一套会话架构。
 export type ConnectionType = 'serial' | 'tcp_client' | 'tcp_server' | 'udp';
 export type ConnectionStatus = 'closed' | 'connected';
-export type ViewMode = 'detail' | 'split' | 'global' | 'forward';
+// 内置视图键；插件注册的视图为任意字符串（plugin-<id>-<view>），运行时经注册表解析
+export type BuiltinViewMode = 'detail' | 'split' | 'global' | 'forward';
+export type ViewMode = BuiltinViewMode | (string & {});
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type AppliedTheme = 'light' | 'dark';
 // RX/TX 为数据方向；系统提示类信息不再作为消息方向存在（走中央 toast 通知）
@@ -40,6 +42,11 @@ export type SessionMessage = {
   direction: MessageDirection;
   text: string;
   raw?: number[];
+  // 入队时刻的显示开关快照：时间戳/方向前缀/HEX 只影响"新到的数据"，
+  // 旧消息按入队时的规则渲染——切开关不全量翻转历史（大数据量切 HEX 不卡顿）
+  snap?: { ts: boolean; rx: boolean; tx: boolean; hex: boolean };
+  // 入队时刻该方向显示开关处于关闭 → 整行隐藏（不补显示：重开只显示新数据）
+  hidden?: boolean;
 };
 
 // 一个 ConnectionSession 就是一条独立连接，也就是界面左侧列表中的一项。
@@ -90,7 +97,7 @@ export type SendSettings = {
   loopInterval: number;
 };
 
-// 快捷命令按钮：名称 + 内容，点击即发送（参考 VOFA+ / 串口调试助手）。
+// 快捷命令按钮：名称 + 内容，点击即发送。
 export type QuickCommand = {
   name: string;
   text: string;

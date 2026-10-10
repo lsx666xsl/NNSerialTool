@@ -135,6 +135,54 @@ body,
   overflow: hidden;
 }
 
+/* 折叠手柄：与面板同色系的圆角长条，位于侧栏与主区间隙正中——
+   侧栏内边距 16px 由负左边距收紧到 8px，右侧 margin 8px 补齐，两侧等宽且紧凑；
+   纵向与侧栏两面板整体等长（上下 16px 对齐面板边缘） */
+/* 折叠手柄：底色与「新建连接会话/连接列表」面板同色同边框，中性灰符号；
+   悬停才点亮主题蓝。折叠态为抽屉拉手（贴平左缘、右端半圆弧） */
+.sidebar-handle {
+  flex-shrink: 0;
+  width: 18px;
+  align-self: stretch;
+  margin: 16px 8px 16px -8px;
+  padding: 0;
+  border: 1px solid rgba(23, 26, 33, 0.08);
+  border-radius: 4px;
+  background: #ffffff;
+  color: #6b7280;
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar-handle:hover {
+  color: #3563c2;
+  border-color: rgba(59, 111, 212, 0.45);
+}
+
+/* 折叠态：抽屉拉手式——贴平左缘、右端半圆弧（上下边弧形过渡），符号完整露出 */
+.sidebar-handle.is-collapsed {
+  margin-left: 0;
+  border-left: none;
+  border-radius: 0 9px 9px 0;
+}
+
+/* 深色主题：与深色面板同色（#2b2d30）同边框 */
+.theme-dark .sidebar-handle {
+  background: #2b2d30;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: #9da0a8;
+}
+
+.theme-dark .sidebar-handle:hover {
+  color: #8fbdf7;
+  border-color: rgba(108, 167, 232, 0.5);
+}
+
 .main-area {
   flex: 1;
   min-width: 0;
@@ -423,6 +471,8 @@ input[type='number'] {
   gap: 10px;
   flex-wrap: wrap;
   justify-content: flex-end;
+  min-width: 0;
+  max-width: 100%;
 }
 
 /* ============ 深色主题（JetBrains 灰色系） ============ */
