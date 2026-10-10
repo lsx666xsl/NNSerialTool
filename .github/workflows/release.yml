@@ -60,13 +60,15 @@ jobs:
       - run: npm ci
 
       # ---- nn CLI 二进制作为资源随主程序打包，必须先于 tauri build 构建 ----
-      # 仓库根无 Cargo.toml（包在 src-tauri/），用 manifest-path 指定；
+      # 鸡生蛋问题：tauri 的 build.rs 在编译期校验资源存在，而 nn.exe 正是本次要构建的——
+      # 先放占位资源通过校验，nn 链接完成后自动覆盖为真实二进制；
       # macOS 交叉编译产物在 target/<triple>/release/，复制到资源路径 src-tauri/target/release/nn
       - name: Build nn CLI
         shell: bash
         run: |
-          cargo build --release --bin nn --manifest-path src-tauri/Cargo.toml ${{ matrix.args }}
           mkdir -p src-tauri/target/release
+          touch src-tauri/target/release/nn src-tauri/target/release/nn.exe
+          cargo build --release --bin nn --manifest-path src-tauri/Cargo.toml ${{ matrix.args }}
           if [ -n "${{ matrix.rust-target }}" ] && [ -f "src-tauri/target/${{ matrix.rust-target }}/release/nn" ]; then
             cp "src-tauri/target/${{ matrix.rust-target }}/release/nn" src-tauri/target/release/nn
           fi
