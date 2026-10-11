@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watchEffect } from 'vue';
 import { appliedTheme, disposeApp, fontFamilyStack, initApp, viewMode } from './stores/appStore';
+import { startPeriodicUpdateCheck, stopPeriodicUpdateCheck } from './stores/updateStore';
 import { readStorage, writeStorage } from './utils/storage';
 import { initPlugins } from './plugins';
 import { resolveView } from './plugins/registry';
@@ -59,10 +60,12 @@ onMounted(() => {
   updateUiScale();
   void initApp();
   void initPlugins();
+  startPeriodicUpdateCheck(); // 定时静默检查更新：只点亮标题栏徽标，不弹框
 });
 
 onUnmounted(() => {
   window.removeEventListener('resize', updateUiScale);
+  stopPeriodicUpdateCheck();
   disposeApp();
 });
 </script>

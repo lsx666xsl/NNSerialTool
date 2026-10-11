@@ -60,6 +60,26 @@ export const openDetailCard = () => {
   if (hasUpdate.value) void loadVersionHistory();
 };
 
+// ---------- 定时静默检查 ----------
+// 启动即查一次 + 每 4 小时复查：只更新内部状态（标题栏绿色「更新」徽标随之出现/消失），
+// 不弹任何卡片或提示——详细内容用户主动点徽标/手动检查时才展示。
+let periodicTimer: ReturnType<typeof setInterval> | undefined;
+
+export const startPeriodicUpdateCheck = () => {
+  void runUpdateCheck().catch(() => {});
+  periodicTimer ??= setInterval(
+    () => void runUpdateCheck().catch(() => {}),
+    4 * 60 * 60 * 1000
+  );
+};
+
+export const stopPeriodicUpdateCheck = () => {
+  if (periodicTimer) {
+    clearInterval(periodicTimer);
+    periodicTimer = undefined;
+  }
+};
+
 // 执行一次检测：桌面优先 updater 插件（原地更新），失败回退 GitHub API。
 // 返回 'update' | 'latest' | 'error' 供调用方提示。
 export const runUpdateCheck = async (): Promise<'update' | 'latest' | 'error'> => {
