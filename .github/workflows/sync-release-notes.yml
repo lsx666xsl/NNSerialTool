@@ -29,11 +29,7 @@ jobs:
             echo "Release $TAG 不存在，跳过"
             exit 0
           fi
-          # 诊断落盘（随提交带回本地，供无 Actions 日志权限时排查）
-          gh release view "$TAG" --repo "${{ github.repository }}" --json body -q .body | wc -c > notes-status-before.txt
           gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file RELEASE_NOTES.md
-          gh release view "$TAG" --repo "${{ github.repository }}" --json body -q .body | wc -c > notes-status-after.txt
-          ls -la RELEASE_NOTES.md >> notes-status-after.txt
           gh release download "$TAG" --repo "${{ github.repository }}" --pattern latest.json --output latest.json.release || true
           if [ -f latest.json.release ]; then
             python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p,encoding="utf-8")); d["notes"]=open("RELEASE_NOTES.md",encoding="utf-8").read(); json.dump(d,open(p,"w",encoding="utf-8"),ensure_ascii=False,indent=2)' latest.json.release
@@ -41,9 +37,10 @@ jobs:
             mv latest.json.release latest.json
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            echo "notes-sync $(date -u +%FT%TZ) before=$(cat notes-status-before.txt) after=$(cat notes-status-after.txt)" > notes-status.txt
-            git add latest.json notes-status-before.txt notes-status-after.txt notes-status.txt
-            git commit -m "chore: latest.json notes 同步（$TAG）+ 诊断"
-            git push origin master
+            if ! git diff --quiet latest.json; then
+              git add latest.json
+              git commit -m "chore: latest.json notes 同步（$TAG）"
+              git push origin master
+            fi
           fi
           echo "Release $TAG 说明已同步"
