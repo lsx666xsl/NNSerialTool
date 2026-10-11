@@ -236,6 +236,10 @@ export const exportSessionLog = async (session: ConnectionSession) => {
       line += hex && m.raw ? bytesToHex(m.raw) : m.text;
       return line;
     });
+  if (lines.length === 0) {
+    notify('当前没有可导出的显示消息（RX/TX 显示开关可能均已关闭）');
+    return;
+  }
   // 端点标识：串口用端口号（COM3），网络用 IP_端口；时间戳精确到秒，文件名唯一
   const endpoint =
     session.type === 'serial'
@@ -825,10 +829,10 @@ let rxFlushScheduled = false;
 const scheduleRxFlush = () => {
   if (rxFlushScheduled) return;
   rxFlushScheduled = true;
-  requestAnimationFrame(() => {
-    rxFlushScheduled = false;
-    flushPendingRx();
-  });
+  // 前台：渲染帧对齐（最低延迟）；后台/最小化窗口 rAF 会暂停——
+  // 补 250ms 兜底定时器（先到先执行并清标志，后到的对空缓冲空转，无害）
+  requestAnimationFrame(() => flushPendingRx());
+  setTimeout(() => flushPendingRx(), 250);
 };
 
 const flushPendingRx = () => {
@@ -874,10 +878,9 @@ let txFlushScheduled = false;
 const scheduleTxFlush = () => {
   if (txFlushScheduled) return;
   txFlushScheduled = true;
-  requestAnimationFrame(() => {
-    txFlushScheduled = false;
-    flushPendingTx();
-  });
+  // 同 scheduleRxFlush：rAF + 后台兜底
+  requestAnimationFrame(() => flushPendingTx());
+  setTimeout(() => flushPendingTx(), 250);
 };
 
 const flushPendingTx = () => {

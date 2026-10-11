@@ -270,7 +270,15 @@ const loadPlugin = async (id: string): Promise<void> => {
       deactivate,
     };
     crumb('activate done ' + id);
-    await instance.activate(createInternalContext(manifest));
+    try {
+      await instance.activate(createInternalContext(manifest));
+    } catch (e) {
+      // 激活中途抛错：清掉已注册的视图/协议/监听，避免僵尸残留
+      // （列表仍显示详情与 loadErrors，停用状态不变；重新启用可整栽重试）
+      unregisterBySource(id);
+      rawListeners.delete(id);
+      throw e;
+    }
     crumb('registered ' + id);
     // 加载期间被卸载/停用（竞态）：注册即撤销，避免僵尸监听与僵尸视图
     if (!sourceOf.has(id) || disabled.has(id)) {
