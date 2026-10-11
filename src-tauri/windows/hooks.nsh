@@ -11,9 +11,17 @@
 !include "StrFunc.nsh"
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; ① 安装 AI SKILL 文件到 ~/.agents/skills/nn/（无条件，体积小，供 AI 自动发现）
-  ExecWait '"$INSTDIR\nn.exe" install-skill'
-  ; ② 询问是否将 nn 加入用户 PATH
+  ; ① nn.exe 资源按相对路径落盘在 $INSTDIR\target\release\，复制到安装根目录
+  ;    （PATH 与 SKILL 钩子都指向根目录），随后删除嵌套副本
+  IfFileExists "$INSTDIR\target\release\nn.exe" 0 nn_skill_done
+    CopyFiles /SILENT "$INSTDIR\target\release\nn.exe" "$INSTDIR\nn.exe"
+    Delete "$INSTDIR\target\release\nn.exe"
+  ; ② 安装 AI SKILL 文件到 ~/.agents/skills/nn/（写入内容自包含，幂等）
+  ;    Exec 非阻塞执行——ExecWait 会被杀软对新解压 exe 的实时扫描扣住导致安装器挂起
+  Exec '"$INSTDIR\nn.exe" install-skill'
+
+nn_skill_done:
+  ; ③ 询问是否将 nn 加入用户 PATH
   ReadRegStr $0 HKCU "Environment" "Path"
   StrCpy $1 "$INSTDIR"
   ; 已包含安装目录 → 跳过（幂等）
