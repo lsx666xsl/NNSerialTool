@@ -73,29 +73,34 @@ jobs:
             cp "src-tauri/target/${{ matrix.rust-target }}/release/nn" src-tauri/target/release/nn
           fi
 
-      # ---- 读取版本发布说明（RELEASE_NOTES.md，随版本维护）----
-      - name: Read release notes
-        id: notes
-        shell: bash
-        run: |
-          { echo 'body<<RELEASE_NOTES_EOF'; cat RELEASE_NOTES.md; echo 'RELEASE_NOTES_EOF'; } >> "$GITHUB_OUTPUT"
-
       # ---- 正式发布（tag 触发）：构建 + 签名 + 创建/追加 Release，含各平台更新器 latest.json ----
+      # 说明正文由 sync-release-notes 工作流统一写入（多行正文经 action 输入传递不可靠）
       - name: Build and release
         if: startsWith(github.ref, 'refs/tags/')
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_BODY: ${{ steps.notes.outputs.body }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'NNSerialTool v__VERSION__'
-          releaseBody: ${{ env.RELEASE_BODY }}
+          releaseBody: '更新内容详见 RELEASE_NOTES.md 与更新日志卡片。'
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
           args: ${{ matrix.args }}
+
+      # ---- 用 RELEASE_NOTES.md 覆盖发布说明（含 latest.json 的 notes 字段同步）----
+      - name: Apply release notes
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release edit "${{ github.ref_name }}" --repo "${{ github.repository }}" --notes-file RELEASE_NOTES.md
+          gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" --pattern latest.json --output latest.json
+          python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p,encoding="utf-8")); d["notes"]=open("RELEASE_NOTES.md",encoding="utf-8").read(); json.dump(d,open(p,"w",encoding="utf-8"),ensure_ascii=False,indent=2)' latest.json
+          gh release upload "${{ github.ref_name }}" --repo "${{ github.repository }}" latest.json --clobber
 
       # ---- 验证构建（手动触发）：只出包，产物存到运行页 Artifacts ----
       - name: Verification build
