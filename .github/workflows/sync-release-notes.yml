@@ -24,11 +24,14 @@ jobs:
         run: |
           VER=$(python3 -c 'import json; print(json.load(open("latest.json", encoding="utf-8"))["version"])')
           TAG="v$VER"
+          echo "目标 TAG=$TAG"
           if ! gh release view "$TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; then
             echo "Release $TAG 不存在，跳过"
             exit 0
           fi
+          echo "编辑前 body 长度: $(gh release view "$TAG" --repo "${{ github.repository }}" --json body -q .body | wc -c)"
           gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file RELEASE_NOTES.md
+          echo "编辑后 body 长度: $(gh release view "$TAG" --repo "${{ github.repository }}" --json body -q .body | wc -c)"
           gh release download "$TAG" --repo "${{ github.repository }}" --pattern latest.json --output latest.json.release || true
           if [ -f latest.json.release ]; then
             python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p,encoding="utf-8")); d["notes"]=open("RELEASE_NOTES.md",encoding="utf-8").read(); json.dump(d,open(p,"w",encoding="utf-8"),ensure_ascii=False,indent=2)' latest.json.release

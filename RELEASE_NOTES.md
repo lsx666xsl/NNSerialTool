@@ -17,3 +17,6 @@
 - Linux 下拉浮层在界面缩放下的错位问题
 【文档】
 - 固件侧交付：NNPrintf.h 分级日志库与 nnwave.rs 波形协议实现（仓库 firmware/ 目录），C/C++/Rust 均可直用
+
+---
+由 NNSerialTool 发布流水线自动维护
