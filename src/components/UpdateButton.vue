@@ -13,12 +13,26 @@ import {
   versionHistory,
 } from '../stores/updateStore';
 import { groupReleaseNotes, openReleasePage, type ReleaseGroup } from '../utils/update';
+import { readStorage, writeStorage } from '../utils/storage';
 import { relaunch } from '@tauri-apps/plugin-process';
 
 // 版本更新：入口在标题栏应用名右侧（绿色「更新」徽标，仅检测到新版本时显示）。
-// 悬停徽标 → 简易更新日志浮层；点击浮层 → 界面中央的详细更新卡片（右上角可关闭，
-// 日志下方「更新」按钮执行原地下载安装并自动重启）。
+// 检测到新版本后，简易日志小窗**常驻**显示在徽标下方（不依赖悬停），带 × 可关闭；
+// 关闭按"版本"记忆——同版本不再打扰，出现更新的版本时再次显示。
+// 点击小窗 → 界面中央的详细更新卡片（日志下方「更新」按钮执行原地下载安装并自动重启）。
 // 检测逻辑与"设置-检查更新"共用 updateStore。
+
+// 小窗关闭记忆：记录已关闭时的版本号
+const DISMISS_KEY = 'st-update-pop-dismissed';
+const dismissedVersion = ref(readStorage<string>(DISMISS_KEY, ''));
+// 小窗常驻可见：有更新 且 未对当前版本关闭 且 详细卡片未打开
+const popVisible = computed(
+  () => hasUpdate.value && !detailOpen.value && (latestVersion.value === '' || dismissedVersion.value !== latestVersion.value)
+);
+const dismissPop = () => {
+  dismissedVersion.value = latestVersion.value;
+  writeStorage(DISMISS_KEY, dismissedVersion.value);
+};
 
 const phase = ref<'idle' | 'download' | 'install'>('idle');
 const progress = ref(0);
@@ -136,8 +150,10 @@ const notifyCancelled = () => {
   <div v-if="hasUpdate" class="update-wrap" @click.stop>
     <button class="update-btn" title="发现新版本" @click="openDetailCard()">更新</button>
 
-    <!-- 悬停简易日志浮层：点击打开中央详细卡片；详细卡片打开期间隐藏 -->
-    <div v-show="!detailOpen" class="update-pop" @click="openDetailCard()">
+    <!-- 常驻简易日志小窗：检测到新版本即显示（不依赖悬停），带 × 关闭（按版本记忆）；
+         点击小窗打开中央详细卡片；详细卡片打开期间隐藏 -->
+    <div v-if="popVisible" class="update-pop" @click="openDetailCard()">
+      <button class="up-pop-close" title="关闭小窗（出现更新的版本时会再次显示）" @click.stop="dismissPop()">×</button>
       <p class="up-title">发现新版本 v{{ latestVersion }}</p>
       <pre class="up-log">{{ simpleLog }}</pre>
       <p class="up-hint">点击查看完整更新日志</p>
@@ -247,6 +263,29 @@ const notifyCancelled = () => {
   border-color: rgba(59, 111, 212, 0.4);
 }
 
+/* 小窗右上角关闭 × */
+.up-pop-close {
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  background: transparent;
+  color: #8a9099;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.up-pop-close:hover {
+  background: rgba(23, 26, 33, 0.06);
+  color: #c74541;
+}
+
 .up-title {
   margin: 0;
   font-size: 12px;
@@ -283,6 +322,15 @@ const notifyCancelled = () => {
 
 .theme-dark .up-hint {
   color: #7c828c;
+}
+
+.theme-dark .up-pop-close {
+  color: #9da0a8;
+}
+
+.theme-dark .up-pop-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f87171;
 }
 
 /* ===== 中央详细更新卡片（Teleport 到 body，自持主题类） ===== */

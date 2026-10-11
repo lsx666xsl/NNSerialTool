@@ -82,18 +82,20 @@ export const stopPeriodicUpdateCheck = () => {
 
 // 执行一次检测：桌面优先 updater 插件（原地更新），失败回退 GitHub API。
 // 返回 'update' | 'latest' | 'error' 供调用方提示。
+// checking 复位统一放外层 finally——检测到更新的路径会提前 return，
+// 此前复位只在第二个 try 的 finally 里，导致"检查中"状态卡死。
 export const runUpdateCheck = async (): Promise<'update' | 'latest' | 'error'> => {
   checking.value = true;
   try {
-    inplaceUpdate.value = (await check()) ?? null;
-    if (inplaceUpdate.value) {
-      lastCheckText.value = `已检测到新版本 v${inplaceUpdate.value.version}`;
-      return 'update';
+    try {
+      inplaceUpdate.value = (await check()) ?? null;
+      if (inplaceUpdate.value) {
+        lastCheckText.value = `已检测到新版本 v${inplaceUpdate.value.version}`;
+        return 'update';
+      }
+    } catch {
+      /* 浏览器调试环境 / 插件不可用 → 走 GitHub API 回退 */
     }
-  } catch {
-    /* 浏览器调试环境 / 插件不可用 → 走 GitHub API 回退 */
-  }
-  try {
     apiInfo.value = await checkUpdate();
     if (apiInfo.value?.hasUpdate) {
       lastCheckText.value = `已检测到新版本 v${apiInfo.value.latestVersion}`;

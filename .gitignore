@@ -42,3 +42,6 @@ AGENTS.md
 
 # 本地测试脚本（e2e 驱动/数据源，不上传）
 scripts/
+
+# 测试截图（本地验证用，不上传）
+.tmp-shot-*.png
