@@ -122,7 +122,7 @@ jobs:
             exit 1
           fi
           SIZE=$(wc -c < "$NN_BIN")
-          echo "nn 产物：$NN_BIN（$SIZE 字节）"
+          echo "nn 产物：${NN_BIN}（${SIZE} 字节）"
           if [ "$SIZE" -lt 102400 ]; then
             echo "::error::nn 产物只有 $SIZE 字节（<100KB），疑似 0 字节/占位文件"
             exit 1
