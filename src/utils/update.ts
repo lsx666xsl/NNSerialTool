@@ -11,6 +11,24 @@ export type UpdateInfo = {
 const REPO = 'lsx666xsl/NNSerialTool';
 const RELEASES_API = `https://api.github.com/repos/${REPO}/releases`;
 const RELEASE_API = `${RELEASES_API}/latest`;
+const FETCH_TIMEOUT_MS = 10_000;
+
+// 带超时的 GitHub GET：超时/网络错误抛错（checkUpdate 统一转 null，由 UI 区分“失败”和“最新”）
+const githubGet = async <T>(url: string): Promise<T> => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, {
+      cache: 'no-store',
+      signal: controller.signal,
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+    if (!res.ok) throw new Error(`GitHub API HTTP ${res.status}`);
+    return (await res.json()) as T;
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 // 分版本更新历史：一个 Release 对应一条（tag 去掉 v 前缀作为版本号）
 export type VersionHistory = {
@@ -43,11 +61,11 @@ const getCurrentVersion = async (): Promise<string> => {
 
 export const checkUpdate = async (): Promise<UpdateInfo | null> => {
   try {
-    const res = await fetch(RELEASE_API, { headers: { Accept: 'application/vnd.github+json' } });
-    if (!res.ok) return null;
-    const data: { tag_name?: string; body?: string; html_url?: string } = await res.json();
+    const data = await githubGet<{ tag_name?: string; body?: string; html_url?: string; draft?: boolean }>(
+      RELEASE_API
+    );
     const latest = String(data.tag_name ?? '');
-    if (!latest) return null;
+    if (!latest || data.draft) return null;
 
     const current = await getCurrentVersion();
     return {
@@ -77,18 +95,20 @@ export const openReleasePage = async (url: string): Promise<void> => {
 // 每个版本的更新说明取 Release body；网络失败返回空数组，由调用方回退到最新版说明。
 export const fetchVersionHistory = async (currentVersion: string): Promise<VersionHistory[]> => {
   try {
-    const res = await fetch(`${RELEASES_API}?per_page=30`, { headers: { Accept: 'application/vnd.github+json' } });
-    if (!res.ok) return [];
-    const data: Array<{ tag_name?: string; body?: string; published_at?: string }> = await res.json();
+    const data = await githubGet<
+      Array<{ tag_name?: string; body?: string; published_at?: string; draft?: boolean; prerelease?: boolean }>
+    >(`${RELEASES_API}?per_page=100`);
     if (!Array.isArray(data)) return [];
     return data
+      // 草稿/预发布不进“正式版更新历史”（否则 1.0.0-rc 会排在 1.0.0 之前/之后造成困惑）
+      .filter((r) => !r.draft && !r.prerelease)
       .map((r) => ({
         version: String(r.tag_name ?? '').replace(/^v/i, ''),
         date: String(r.published_at ?? '').slice(0, 10),
         notes: String(r.body ?? '').trim(),
       }))
       .filter((r) => r.version && compareVersion(r.version, currentVersion) > 0)
-      .sort((a, b) => compareVersion(a.version, b.version));
+      .sort((a, b) => compareVersion(a.version, b.version) || a.date.localeCompare(b.date));
   } catch {
     return [];
   }
@@ -108,13 +128,25 @@ const OTHER_GROUP: ReleaseGroup = { kind: 'other', label: '其他变更', items:
 
 type GroupHit = { kind: ReleaseGroupKind; key: string };
 
-// 取行内最早出现的关键词作为归属（英文不区分大小写）；各分类都未命中返回 null
+// 取行内最早出现的关键词作为归属（英文不区分大小写）。
+// 英文关键词必须作为独立单词命中：直接用 indexOf 会让 "prefix handling" 命中 fix、
+// "debug mode" 命中 bug、"performance" 命中 perf（历史 bug）。
+const isAsciiKey = (key: string) => /^[a-z]+$/i.test(key);
 const detectGroup = (line: string): GroupHit | null => {
   const lower = line.toLowerCase();
   let best: (GroupHit & { idx: number }) | null = null;
   for (const def of GROUP_DEFS) {
     for (const key of def.keys) {
-      const idx = lower.indexOf(key.toLowerCase());
+      const k = key.toLowerCase();
+      let idx = -1;
+      if (isAsciiKey(k)) {
+        // 单词边界：前后不能是 ASCII 字母
+        const re = new RegExp(`(^|[^a-z])${k}([^a-z]|$)`);
+        const m = re.exec(lower);
+        if (m) idx = m.index + m[1].length;
+      } else {
+        idx = lower.indexOf(k);
+      }
       if (idx >= 0 && (!best || idx < best.idx)) best = { kind: def.kind, key, idx };
     }
   }

@@ -65,7 +65,10 @@ impl<'a> NnWave<'a> {
     }
 
     /// 发送通道名（可选）：上电发一次，波形图例将显示这些名字。
-    /// 单名最长 62 字节（留 1 字节长度位），超长截断，总容量受 4N 字节限制
+    /// 单名最长 62 字节（留 1 字节长度位），超长按 UTF-8 字符边界截断（不切半个中文）；
+    /// 总容量受 4N 字节限制（N=通道数，协议要求 payload 恒为 4N 字节），
+    /// 放不下的尾部名字在 payload 里保持 0（上位机解析为空名）；
+    /// 一个名字都放不下的"空名帧"不发（避免上位机收到一帧全 0 的无效元数据）。
     pub fn send_names(&mut self, names: &[&str]) -> i32 {
         if names.is_empty() || names.len() > NNWAVE_MAX_CHANNELS {
             return -1;
@@ -76,16 +79,27 @@ impl<'a> NnWave<'a> {
         for name in names {
             let mut bytes = name.as_bytes();
             if bytes.len() > 62 {
-                bytes = &bytes[..62]; //单名最长 62 字节
+                //单名最长 62 字节：62 只是字节上限，可能正好落在多字节字符中间，
+                //逐字节回退到最近的 char 边界，避免把中文切成半个字符
+                let mut cut = 62;
+                while cut > 0 && !name.is_char_boundary(cut) {
+                    cut -= 1;
+                }
+                bytes = &bytes[..cut];
             }
             if p + 1 + bytes.len() > 4 * n {
-                break; //总容量受 4N 字节限制
+                break; //总容量受 4N 字节限制，后面的名字放不下
             }
             payload[p] = bytes.len() as u8;
             p += 1;
             payload[p..p + bytes.len()].copy_from_slice(bytes);
             p += bytes.len();
         }
+        if p == 0 {
+            return -1; //一个名字都没编码成功：不发空名帧
+        }
+        //N 保持 names.len()：协议约定 payload 恒为 4N 字节，不能改成实际编码数量，
+        //否则帧长度与 N 对不上，上位机会把 payload 读串
         self.frame(NNWAVE_TYPE_NAMES, n, &payload)
     }
 

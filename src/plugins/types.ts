@@ -56,6 +56,8 @@ export interface ParserInstance {
   reset(): void;
 }
 
+// 协议注册项：预留给协议插件（当前宿主未消费——波形等视图由插件自行 createParser，
+// 应用侧不主动实例化解析器；契约保留以便后续内置解析管线接入）
 export interface ProtocolDef {
   id: string;
   name: string;
@@ -91,7 +93,10 @@ export interface ThemeColors {
   palette: string[]; // 通道配色（≥8 色，两套主题通用）
 }
 
-// 应用注入给插件的能力面（白名单，拿不到原始 Tauri IPC）
+// 应用注入给插件的能力面（白名单）：插件只能调用这里声明的方法。
+// 边界说明：路径与原生对话框来源由后端校验（文件导出目录、插件目录 relPath 等），
+// 但插件代码与宿主运行在同一个 WebView 中、共享同一份 JS 全局环境，并非操作系统级沙箱——
+// 白名单约束的是"便利能力"而非不可绕过的安全边界，安装第三方插件前须确认来源可信。
 export interface PluginContext {
   readonly pluginId: string;
   theme(): ThemeName;
@@ -112,7 +117,6 @@ export interface PluginContext {
   log(...args: unknown[]): void;
 }
 
-// appStore 在 initApp 时注入的服务桥（避免 appStore ↔ host 循环依赖）
 // 插件实例契约：main.js 默认导出 activate（ES module）
 export interface PluginInstance {
   manifest: PluginManifest;
@@ -120,16 +124,11 @@ export interface PluginInstance {
   deactivate?(): void;
 }
 
+// appStore 在 initApp 时注入的服务桥（避免 appStore ↔ host 循环依赖）：
+// sessions() 取当前快照；onSessions() 注册会话变化监听并返回取消函数。
 export interface AppBridge {
   sessions(): SessionSnapshot[];
   onSessions(cb: (list: SessionSnapshot[]) => void): () => void;
-  sendRaw(sessionId: string, bytes: number[]): Promise<void>;
-  notify(text: string): void;
-}
-
-// appStore 在 initApp 时注入的服务桥（避免 appStore ↔ host 循环依赖）
-export interface AppBridge {
-  sessions(): SessionSnapshot[];
   sendRaw(sessionId: string, bytes: number[]): Promise<void>;
   notify(text: string): void;
 }

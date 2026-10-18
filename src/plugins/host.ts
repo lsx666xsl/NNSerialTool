@@ -1,7 +1,9 @@
 // ==================================================================
 // 插件宿主：加载/卸载第三方插件、内置插件激活、能力上下文工厂、
 // 原始数据分发。第三方 JS 通过 Blob URL 动态 import，只拿得到
-// PluginContext 白名单能力，接触不到原始 Tauri IPC。
+// PluginContext 白名单能力。
+// 安全边界（勿夸大）：白名单能力面 + 路径/原生对话框来源由后端校验；
+// 插件与宿主运行在同一个 WebView 中、共享同一份 JS 环境，并非 OS 级沙箱。
 // ==================================================================
 import { defineComponent, h, onMounted, onUnmounted, ref } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
@@ -32,7 +34,43 @@ const themeListeners = new Set<(t: ThemeName) => void>();
 export const setTheme = (t: ThemeName) => {
   if (currentTheme === t) return;
   currentTheme = t;
-  themeListeners.forEach((cb) => cb(t));
+  // 逐回调隔离：某个插件抛错不能中断其余插件的主题同步，也不向 appStore 冒泡
+  themeListeners.forEach((cb) => {
+    try {
+      cb(t);
+    } catch (e) {
+      console.warn('[plugin] 主题回调异常', e);
+    }
+  });
+};
+
+// ---------- 插件订阅清理器 ----------
+// onThemeChange / onSessionsChange 等订阅在注册时登记取消函数，卸载插件时统一调用，
+// 避免停用/覆盖安装后仍收到回调（僵尸订阅会在插件代码已卸载后继续执行）。
+const pluginDisposers = new Map<string, Set<() => void>>();
+
+const addDisposer = (pluginId: string, dispose: () => void) => {
+  const set = pluginDisposers.get(pluginId) ?? new Set<() => void>();
+  set.add(dispose);
+  pluginDisposers.set(pluginId, set);
+  // 返回给插件的取消函数：同时登记表里移除，避免重复调用与集合膨胀
+  return () => {
+    set.delete(dispose);
+    if (set.size === 0) pluginDisposers.delete(pluginId);
+  };
+};
+
+const disposePluginSubscriptions = (pluginId: string) => {
+  const set = pluginDisposers.get(pluginId);
+  if (!set) return;
+  pluginDisposers.delete(pluginId);
+  for (const dispose of set) {
+    try {
+      dispose();
+    } catch (e) {
+      console.warn(`[plugin:${pluginId}] 清理订阅异常`, e);
+    }
+  }
 };
 
 // ---------- 应用服务桥（appStore.initApp 第一行装配） ----------
@@ -101,11 +139,14 @@ export const createInternalContext = (manifest: PluginManifest): PluginContext =
     themeColors: () => THEME_COLORS[currentTheme],
     onThemeChange(cb) {
       themeListeners.add(cb);
-      return () => themeListeners.delete(cb);
+      // 登记取消器：插件卸载时统一摘除，不依赖插件自觉调用返回值
+      return addDisposer(pid, () => themeListeners.delete(cb));
     },
     listSessions: () => bridge?.sessions() ?? [],
     onSessionsChange(cb) {
-      return bridge ? bridge.onSessions(cb) : () => {};
+      // 服务桥未就绪时返回空取消函数；就绪时登记后端监听的取消器供卸载统一清理
+      const off = bridge ? bridge.onSessions(cb) : () => {};
+      return addDisposer(pid, off);
     },
     onRawData(cb) {
       const set = rawListeners.get(pid) ?? new Set();
@@ -120,15 +161,14 @@ export const createInternalContext = (manifest: PluginManifest): PluginContext =
     },
     notify: (text) => bridge?.notify(text),
     async exportTextFiles(title, files, folderName) {
-      // 用户经原生目录对话框知情选择后在子目录中覆盖写出；取消返回空串
-      const { open } = await import('@tauri-apps/plugin-dialog');
-      const dir = await open({ directory: true, multiple: false, title });
-      if (typeof dir !== 'string' || !dir) return '';
-      const target = folderName ? dir + '/' + folderName : dir;
-      for (const f of files) {
-        await invoke('write_text_file', { dir: target, filename: f.name, text: f.text });
-      }
-      return target;
+      // 目录选择 + 文件写出都由后端完成：dialog 由 Rust 侧弹出，路径来源与
+      // 文件名/子目录合法性由后端校验；用户取消时返回 null，统一转为空串。
+      const dir = await invoke<string | null>('export_text_files', {
+        title,
+        folderName: folderName ?? null,
+        files: files.map((f) => ({ name: f.name, text: f.text })),
+      });
+      return dir ?? '';
     },
     storage: {
       get(key, fallback) {
@@ -199,7 +239,16 @@ export const dispatchRawData = (sessionId: string, sessionName: string, bytes: n
     bytes: bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes),
     t: performance.now(),
   };
-  for (const set of rawListeners.values()) set.forEach((cb) => cb(event));
+  // 逐个回调隔离：单个插件的数据回调抛错不能中断其它插件，也不能冒泡回 appStore
+  // 的数据接收路径（否则一次异常会让整批 RX 分发停摆）
+  for (const set of rawListeners.values())
+    set.forEach((cb) => {
+      try {
+        cb(event);
+      } catch (e) {
+        console.warn('[plugin] raw 数据回调异常', e);
+      }
+    });
 };
 
 // ---------- 加载 / 卸载 ----------
@@ -220,6 +269,8 @@ const unloadPlugin = (id: string) => {
   } catch (e) {
     console.warn(`[plugin:${id}] deactivate 异常`, e);
   }
+  // 先撤订阅（主题/会话/原始数据），再摘视图与协议：确保卸载过程中不再回调插件代码
+  disposePluginSubscriptions(id);
   unregisterBySource(id);
   rawListeners.delete(id);
   loaded.delete(id);
@@ -275,6 +326,7 @@ const loadPlugin = async (id: string): Promise<void> => {
     } catch (e) {
       // 激活中途抛错：清掉已注册的视图/协议/监听，避免僵尸残留
       // （列表仍显示详情与 loadErrors，停用状态不变；重新启用可整栽重试）
+      disposePluginSubscriptions(id);
       unregisterBySource(id);
       rawListeners.delete(id);
       throw e;
@@ -282,6 +334,7 @@ const loadPlugin = async (id: string): Promise<void> => {
     crumb('registered ' + id);
     // 加载期间被卸载/停用（竞态）：注册即撤销，避免僵尸监听与僵尸视图
     if (!sourceOf.has(id) || disabled.has(id)) {
+      disposePluginSubscriptions(id);
       unregisterBySource(id);
       rawListeners.delete(id);
       return;
@@ -362,13 +415,35 @@ const purgeStorage = (id: string) => {
 export const uninstallPlugin = async (id: string) => {
   unloadPlugin(id);
   sourceOf.delete(id);
+  try {
+    await invoke('plugin_remove_dir', { id });
+  } catch (e) {
+    // 目录没删掉（被占用/权限不足）：不能假装卸载成功，否则下次启动会“幽灵复活”。
+    // 恢复列表条目并上报错误，让用户处理占用后重试。
+    sourceOf.set(id, 'local');
+    const reason = e instanceof Error ? e.message : String(e);
+    loadErrors.set(id, `卸载失败：${reason}`);
+    refreshInstalled(id);
+    throw new Error(`卸载失败（插件目录未能删除）：${reason}`);
+  }
+  // 目录删除成功后才清插件私有存储；失败时保留，重试卸载仍可完整清理
   purgeStorage(id);
-  await invoke('plugin_remove_dir', { id }).catch(() => {});
+  loadErrors.delete(id);
   refreshInstalled(id);
 };
 
-export const installFromBytesPublic = async (bytes: Uint8Array, expectedSha256?: string, source: 'local' | 'market' = 'market'): Promise<PluginManifest> => {
-  const manifest = await installFromBytes(bytes, expectedSha256);
+export const installFromBytesPublic = async (
+  bytes: Uint8Array,
+  expectedSha256?: string,
+  source: 'local' | 'market' = 'market',
+  // 市场条目声明的元信息：用于在落盘前核对安装包清单与索引一致（防索引/包被替换）
+  expect?: { id?: string; version?: string; apiVersion?: number; minAppVersion?: string }
+): Promise<PluginManifest> => {
+  const manifest = await installFromBytes(bytes, expectedSha256, {
+    // 市场安装强制 sha256：索引条目缺校验值时安装器直接拒绝
+    requireSha256: source === 'market',
+    expect,
+  });
   sourceOf.set(manifest.id, source);
   disabled.delete(manifest.id);
   writeStorage(DISABLED_KEY, [...disabled]);
@@ -376,8 +451,18 @@ export const installFromBytesPublic = async (bytes: Uint8Array, expectedSha256?:
   // 新版本将永远加载不上（曾致市场"更新成功"后运行版本不变）
   unloadPlugin(manifest.id);
   manifests.delete(manifest.id);
-  await loadPlugin(manifest.id);
-  refreshInstalled(manifest.id);
+  try {
+    await loadPlugin(manifest.id);
+    loadErrors.delete(manifest.id);
+  } catch (e) {
+    // 文件已经原子落盘，但激活失败：保留条目与错误详情（列表可重试），
+    // 并明确告知用户"已安装、加载失败"，避免误以为安装被回滚而重复操作。
+    const reason = e instanceof Error ? e.message : String(e);
+    loadErrors.set(manifest.id, reason);
+    throw new Error(`插件已安装，但加载失败：${reason}`);
+  } finally {
+    refreshInstalled(manifest.id);
+  }
   return manifest;
 };
 

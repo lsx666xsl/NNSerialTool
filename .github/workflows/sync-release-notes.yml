@@ -1,46 +1,147 @@
-# RELEASE_NOTES.md 变更即同步到对应版本的 GitHub Release 说明
-# （含更新器 latest.json 的 notes 字段——应用内更新卡片展示的内容）。
-# 目标版本取仓库根 latest.json 的 version（无该版本 Release 时静默跳过）。
+# 把 RELEASE_NOTES.md 的说明同步到"指定版本"的 GitHub Release 及其 latest.json 附件。
+#
+# 触发方式：
+#   1. 手动 Run workflow：必须填 version（如 v0.6.2 或 0.6.2）——发布后修订说明用；
+#      优先使用该输入，避免依赖"仓库根 latest.json 反查 tag"（新一轮发布尚未同步
+#      latest.json 时，旧逻辑会误改上一版 Release 的说明）。
+#   2. 推送 v* tag：取该 tag 作为目标版本；此时 Release 通常尚未构建完成，
+#      脚本会做存在性校验并安全跳过，初版说明由 release.yml 在构建完成后写入。
+#
+# 供应链说明（残余风险）：第三方 action 保留 major tag，未固定 commit SHA
+# （离线环境无法核验，不伪造）；联网后应按 TODO 注释逐个改为 SHA 固定版本。
 name: Sync release notes
 
 on:
   push:
-    branches: [master]
-    paths: ['RELEASE_NOTES.md']
+    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      version:
+        description: '目标版本号或 tag（例如 v0.6.2 / 0.6.2）'
+        required: true
+        type: string
 
 permissions:
   contents: write
+
+# 同一版本的说明同步串行执行；不取消进行中的任务（避免半途中断留下不一致）
+concurrency:
+  group: sync-release-notes-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+      # TODO: pin to commit SHA（actions/checkout@v4）
       - uses: actions/checkout@v4
+        with:
+          ref: master
+          fetch-depth: 0   # 需要完整 tag/历史：校验 tag 存在、读取 tag 内的 RELEASE_NOTES.md
+          fetch-tags: true
 
-      - name: Apply notes to matching release
+      - name: Resolve and verify tag
+        id: tag
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            TAG="$INPUT_VERSION"
+            case "$TAG" in v*) ;; *) TAG="v$TAG" ;; esac
+          else
+            TAG="$GITHUB_REF_NAME"   # tag 事件
+          fi
+          case "$TAG" in
+            v*) ;;
+            *) echo "::error::无法解析目标版本：'$TAG'（应形如 v0.6.2 或 0.6.2）"; exit 1 ;;
+          esac
+          if ! git rev-parse -q --verify "refs/tags/$TAG" > /dev/null; then
+            echo "::error::tag $TAG 不存在"
+            exit 1
+          fi
+          echo "目标 TAG=$TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare notes
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.tag.outputs.tag }}'
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+            # 手动触发：用 master 上最新的 RELEASE_NOTES.md（发布后修订的场景）
+            cp RELEASE_NOTES.md notes.md
+          elif git cat-file -e "$TAG:RELEASE_NOTES.md" 2>/dev/null; then
+            # tag 触发：用该 tag 内的说明，避免把 master 上属于下一版的说明写进上一版
+            git show "$TAG:RELEASE_NOTES.md" > notes.md
+          else
+            cp RELEASE_NOTES.md notes.md
+          fi
+          echo "说明文件大小：$(wc -c < notes.md) 字节"
+
+      - name: Check release exists
+        id: release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          VER=$(python3 -c 'import json; print(json.load(open("latest.json", encoding="utf-8"))["version"])')
-          TAG="v$VER"
-          echo "目标 TAG=$TAG"
-          if ! gh release view "$TAG" --repo "${{ github.repository }}" > /dev/null 2>&1; then
-            echo "Release $TAG 不存在，跳过"
+          if gh release view '${{ steps.tag.outputs.tag }}' --repo '${{ github.repository }}' > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Release ${{ steps.tag.outputs.tag }} 不存在（可能尚未构建完成），跳过"
+          fi
+
+      - name: Apply notes to matching release
+        if: steps.release.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release edit '${{ steps.tag.outputs.tag }}' --repo '${{ github.repository }}' --notes-file notes.md
+          echo "Release ${{ steps.tag.outputs.tag }} 说明已同步"
+
+      - name: Update latest.json asset in release
+        id: asset
+        if: steps.release.outputs.exists == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.tag.outputs.tag }}'
+          # 下载到独立目录并用原始文件名 latest.json：gh release upload 以 basename 作为
+          # 资产名，不能把 latest.json.release 之类的临时名直接上传（会造出错误命名的资产）
+          TMP_DIR=$(mktemp -d)
+          if ! gh release download "$TAG" --repo '${{ github.repository }}' --pattern latest.json --dir "$TMP_DIR" --clobber; then
+            echo "synced=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Release 中没有 latest.json 附件，跳过更新器说明同步"
             exit 0
           fi
-          gh release edit "$TAG" --repo "${{ github.repository }}" --notes-file RELEASE_NOTES.md
-          gh release download "$TAG" --repo "${{ github.repository }}" --pattern latest.json --output latest.json.release || true
-          if [ -f latest.json.release ]; then
-            python3 -c 'import json,sys; p=sys.argv[1]; d=json.load(open(p,encoding="utf-8")); d["notes"]=open("RELEASE_NOTES.md",encoding="utf-8").read(); json.dump(d,open(p,"w",encoding="utf-8"),ensure_ascii=False,indent=2)' latest.json.release
-            gh release upload "$TAG" --repo "${{ github.repository }}" latest.json.release --clobber
-            mv latest.json.release latest.json
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            if ! git diff --quiet latest.json; then
-              git add latest.json
-              git commit -m "chore: latest.json notes 同步（$TAG）"
-              git push origin master
-            fi
+          python3 -c 'import json,sys; p=sys.argv[1]; n=sys.argv[2]; d=json.load(open(p,encoding="utf-8")); d["notes"]=open(n,encoding="utf-8").read(); json.dump(d,open(p,"w",encoding="utf-8"),ensure_ascii=False,indent=2)' "$TMP_DIR/latest.json" notes.md
+          gh release upload "$TAG" --repo '${{ github.repository }}' "$TMP_DIR/latest.json" --clobber
+          cp "$TMP_DIR/latest.json" latest.json
+          echo "synced=true" >> "$GITHUB_OUTPUT"
+
+      # 只把"当前 latest release"的 latest.json 回写仓库根，避免为旧版本补说明时
+      # 把 jsDelivr 备用更新源回退成旧版本
+      - name: Commit latest.json mirror (latest release only)
+        if: steps.asset.outputs.synced == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.tag.outputs.tag }}'
+          LATEST_TAG=$(gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name)
+          if [ "$LATEST_TAG" != "$TAG" ]; then
+            echo "TAG=$TAG 不是当前 latest release（$LATEST_TAG），不回写仓库 latest.json"
+            exit 0
           fi
-          echo "Release $TAG 说明已同步"
+          # latest.json 由上一步从 Release 下载并编辑后复制到工作区（保持原始文件名）
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if git diff --quiet latest.json; then
+            echo "latest.json 无变化，跳过提交"
+          else
+            git add latest.json
+            git commit -m "chore: latest.json notes 同步（$TAG）"
+            git push origin master
+          fi

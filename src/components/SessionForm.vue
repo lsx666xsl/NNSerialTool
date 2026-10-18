@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
 import NumberInput from './NumberInput.vue';
 import SelfSelect from './SelfSelect.vue';
 import {
@@ -13,6 +13,7 @@ import {
   newNetConfig,
   newSessionConfig,
   newSessionType,
+  notify,
   parityBits,
   ports,
   refreshPorts,
@@ -120,12 +121,40 @@ const pickAddress = (ip: string) => {
   addrOpen.value = false;
 };
 
-// 自定义波特率：回车或失焦时提交，非法输入静默还原
-const onCustomBaudBlur = () => {
-  if (addCustomBaudRate(customBaudRate.value)) {
-    customBaudRate.value = '';
-    showCustomBaud.value = false;
+// 连接类型切换时同步地址默认值语义：
+// tcp_server 的 host 是监听地址（空 = 绑定 0.0.0.0，输入框占位提示 0.0.0.0），
+// tcp_client 的 host 是目标地址（不能为空）。切到服务端时清掉上一模式残留的回环地址，
+// 切回客户端时空地址回填 127.0.0.1；用户手填的其它地址保持不动。
+watch(newSessionType, (type) => {
+  const host = newNetConfig.value.host;
+  if (type === 'tcp_server') {
+    if (host === '127.0.0.1' || host === '') newNetConfig.value.host = '';
+  } else if (type === 'tcp_client') {
+    if (!host.trim()) newNetConfig.value.host = '127.0.0.1';
   }
+});
+
+// 自定义波特率的合法范围：正整数，1 ~ 10,000,000（串口芯片可接受的上限区间）
+const BAUD_RATE_MIN = 1;
+const BAUD_RATE_MAX = 10_000_000;
+
+// 自定义波特率：回车或失焦时提交。严格校验（正整数且在合法范围内），
+// 非法输入 toast 提示并保留原文供用户修正；校验通过后交给 addCustomBaudRate
+// 写入候选列表并选中（其返回 false 视为设置失败，同样保留输入）。
+const onCustomBaudBlur = () => {
+  const raw = customBaudRate.value.trim();
+  if (!raw) return; // 空输入：保持展开，等待用户继续输入
+  const val = Number(raw);
+  if (!Number.isInteger(val) || val < BAUD_RATE_MIN || val > BAUD_RATE_MAX) {
+    notify(`波特率必须是 ${BAUD_RATE_MIN} ~ ${BAUD_RATE_MAX} 之间的整数`);
+    return;
+  }
+  if (!addCustomBaudRate(String(val))) {
+    notify('自定义波特率设置失败，请重试');
+    return;
+  }
+  customBaudRate.value = '';
+  showCustomBaud.value = false;
 };
 </script>
 
@@ -216,9 +245,17 @@ const onCustomBaudBlur = () => {
     <button class="primary-btn full-btn" :disabled="!canCreateSession" @click="createSession">添加会话</button>
   </section>
 
-  <!-- 浮层 Teleport 到 body：fixed 定位跟随输入框，不占侧栏布局、不引起滚动 -->
+  <!-- 浮层 Teleport 到 body：fixed 定位跟随输入框，不占侧栏布局、不引起滚动；
+       @click.stop 防止选项点击冒泡到页面的"点外部关闭"监听（否则选中地址后浮层/菜单被误关） -->
   <Teleport to="body">
-    <div v-if="addrOpen" ref="addrPopEl" class="addr-pop" :class="{ 'theme-dark': appliedTheme === 'dark' }" :style="addrPopStyle">
+    <div
+      v-if="addrOpen"
+      ref="addrPopEl"
+      class="addr-pop"
+      :class="{ 'theme-dark': appliedTheme === 'dark' }"
+      :style="addrPopStyle"
+      @click.stop
+    >
       <div
         v-for="ip in addressSuggestions"
         :key="ip"

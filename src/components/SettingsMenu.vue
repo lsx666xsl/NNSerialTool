@@ -89,9 +89,9 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
         <SelfSelect v-model="fontFamily" :options="fontOptions" />
       </div>
       <div class="settings-group">
-        <span class="settings-label">日志导出路径（留空 = 安装目录 log）</span>
+        <span class="settings-label">日志导出路径（留空 = 应用日志目录）</span>
         <div class="log-dir-row">
-          <input v-model="logDir" class="log-dir-input" :placeholder="defaultLogDir || '安装目录\\log'" spellcheck="false" />
+          <input v-model="logDir" class="log-dir-input" :placeholder="defaultLogDir || '应用日志目录（默认）'" spellcheck="false" />
           <button class="dir-pick" title="选择日志导出目录" @click="pickLogDir">…</button>
         </div>
       </div>
@@ -303,8 +303,14 @@ onUnmounted(() => document.removeEventListener('click', onDocClick));
   color: #7c828c;
 }
 
-.theme-dark .dir-pick:hover {
+/* 深色主题：插件管理入口（与检查更新同款，深色下用高亮蓝） */
+.theme-dark .plugin-btn {
   background: rgba(87, 157, 245, 0.16);
   color: #8fbdf7;
+  box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.4);
+}
+
+.theme-dark .plugin-btn:hover {
+  background: rgba(87, 157, 245, 0.26);
 }
 </style>

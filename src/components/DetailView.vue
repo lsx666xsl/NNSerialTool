@@ -10,11 +10,14 @@ import {
   cycleNewline,
   exportSessionLog,
   filterHexInput,
+  loopSessionId,
+  loopTargetName,
   newlineLabel,
   openConnection,
   quickCommands,
   removeQuickCommand,
   removeSession,
+  requestLoopFor,
   sendData,
   sendQuickCommand,
   sendSettings,
@@ -24,6 +27,12 @@ import {
 // 单屏大视图：接收流 + 工具带 + 发送区（高度可拖拽）+ 右侧拓展命令纵栏。
 // 旧"选项"折叠面板已移除：自动换行/自动发送并入工具带，快捷命令常驻右栏。
 const connected = computed(() => activeSession.value?.status === 'connected');
+
+// 自动发送状态：只有“当前锁定会话就是本会话”且全局开关亮起才算开。
+// 目标由 store 锁定，切换当前会话不会把发送目标静默带走（开关保持原会话）。
+const isLooping = computed(
+  () => !!activeSession.value && loopSessionId.value === activeSession.value.id && sendSettings.value.loopSend
+);
 
 // 拓展命令编辑模式：切换后按钮变成可编辑的名称/内容输入行
 const cmdEditing = ref(false);
@@ -126,16 +135,21 @@ const onResizeHandleDown = (e: PointerEvent) => {
             >
               自动换行: {{ newlineLabel }}
             </button>
-            <!-- 自动发送开关：开启后旁边显示可键入的间隔输入（同行元素右移） -->
+            <!-- 自动发送开关：requestLoopFor 锁定本会话；开启后旁边显示可键入的间隔输入（仅本会话循环时显示） -->
             <button
               class="tb-toggle"
-              :class="{ on: sendSettings.loopSend }"
-              title="按设定的间隔自动发送发送框中的内容（作用于开启时的会话）"
-              @click="sendSettings.loopSend = !sendSettings.loopSend"
+              :class="{ on: isLooping }"
+              :disabled="!connected"
+              :title="
+                isLooping
+                  ? `自动发送中（发往 ${loopTargetName || activeSession.name}），点击停止`
+                  : '按设定的间隔自动发送发送框中的内容（锁定当前会话）'
+              "
+              @click="requestLoopFor(activeSession)"
             >
               自动发送
             </button>
-            <template v-if="sendSettings.loopSend">
+            <template v-if="isLooping">
               <input
                 class="auto-interval"
                 :value="sendSettings.loopInterval"

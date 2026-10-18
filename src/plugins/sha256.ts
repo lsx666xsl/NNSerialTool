@@ -17,8 +17,11 @@ const rotr = (x: number, n: number) => (x >>> n) | (x << (32 - n));
 
 export const sha256Hex = async (data: Uint8Array): Promise<string> => {
   const bitLen = data.length * 8;
-  // 填充：消息 + 0x80 + 0×k + 64 位大端长度
-  const padded = new Uint8Array((((data.length + 9) >> 6) + 1) << 6);
+  // 填充：消息 + 0x80 + 0×k + 64 位大端长度，总长补到 64 字节整数倍。
+  // 需保证 len + 1(0x80) + 8(长度) 之后向上取整到 64：ceil((len+9)/64)*64。
+  // 旧写法 (((len+9)>>6)+1)<<6 在 len%64==55 时会多补一整块（写入 0x80 后
+  // 恰好占满一块，长度字段已无位置却被挪到下一块），算出错误摘要。
+  const padded = new Uint8Array(Math.ceil((data.length + 9) / 64) * 64);
   padded.set(data);
   padded[data.length] = 0x80;
   const view = new DataView(padded.buffer);

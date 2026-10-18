@@ -16,16 +16,31 @@ const props = withDefaults(
 const emit = defineEmits<{ (e: 'update:modelValue', v: number): void }>();
 
 const clamp = (v: number) => Math.min(props.max, Math.max(props.min, v));
+const INT_RE = /^-?\d+$/;
 
-// 输入过程中即时上抛合法数字；清空/非法时保持原值不动（失焦恢复显示）
+// 输入过程中只上抛“合法且未越界”的整数：
+// - "12abc"/"1e5" 这类非法串不再被 parseInt 截成 12/1；
+// - 越界值（如 65536）不即时改写用户正在输入的内容（旧实现会在键入中途 clamp 成 65535）；
+// 越界/非法值留到失焦时统一 clamp 并回显。
 const onInput = (e: Event) => {
-  const n = parseInt((e.target as HTMLInputElement).value, 10);
-  if (!Number.isNaN(n)) emit('update:modelValue', clamp(n));
+  const raw = (e.target as HTMLInputElement).value.trim();
+  if (!INT_RE.test(raw)) return;
+  const n = Number(raw);
+  if (!Number.isSafeInteger(n) || n < props.min || n > props.max) return;
+  emit('update:modelValue', n);
 };
 
-// 失焦时把显示值规范化回当前模型值（清空后自动恢复）
+// 失焦时规范化显示：合法值 clamp 后回写并同步模型；非法/空值恢复当前模型值
 const onBlur = (e: Event) => {
-  (e.target as HTMLInputElement).value = String(props.modelValue);
+  const input = e.target as HTMLInputElement;
+  const raw = input.value.trim();
+  if (INT_RE.test(raw)) {
+    const n = clamp(Number(raw));
+    input.value = String(n);
+    if (n !== props.modelValue) emit('update:modelValue', n);
+    return;
+  }
+  input.value = String(props.modelValue);
 };
 
 const bump = (dir: 1 | -1) => {

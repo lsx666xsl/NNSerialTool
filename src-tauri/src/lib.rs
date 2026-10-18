@@ -36,14 +36,11 @@ pub fn run() {
             serial_close_all, // 关闭全部串口（前端初始化时清理残留句柄）
             serial_write,
             serial_log_write,
-            serial_log_dir, // 默认日志导出目录（exe 所在目录下的 log）
+            serial_log_dir,    // 默认日志导出目录（应用日志目录，失败回退 exe/log）
             system_fonts_list, // 枚举 Windows 已安装字体（设置字体下拉）
             serial_auto_send_start,
             serial_auto_send_stop,
             serial_set_baudrate,
-            serial_set_databits,
-            serial_set_parity,
-            serial_set_stopbits,
             net_open, // 打开网络连接（TCP 客户端/服务端/UDP）
             net_close,
             net_close_all, // 关闭全部网络连接（前端初始化时清理残留监听）
@@ -52,12 +49,12 @@ pub fn run() {
             net_auto_send_stop,
             net_local_ips,
             // 插件文件桥（WebView 无磁盘权限，插件安装/读取/卸载与固件导出走这里）
-            plugin_write_file,
+            plugin_install, // 事务安装插件（staging + rename，失败不留半成品）
             plugin_read_text,
             plugin_list_ids,
             plugin_remove_dir,
-            read_dialog_file,
-            write_text_file,
+            import_plugin_zip, // 原生对话框选择本地插件包（zip）并读取字节
+            export_text_files, // 原生目录选择 + 多文本文件覆盖写（固件协议文件导出）
         ])
         .setup(|app| {
             // 任务栏/标题栏图标偶发变白（窗口重建后图标丢失）的缓解：

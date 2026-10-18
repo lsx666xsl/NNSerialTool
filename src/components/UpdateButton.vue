@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue';
+import { computed, ref, watch } from 'vue';
 import { appliedTheme } from '../stores/appStore';
 import {
   changelog,
@@ -10,11 +10,14 @@ import {
   inplaceUpdate,
   latestVersion,
   openDetailCard,
+  runUpdateCheck,
+  updateRunning,
   versionHistory,
 } from '../stores/updateStore';
 import { groupReleaseNotes, openReleasePage, type ReleaseGroup } from '../utils/update';
 import { readStorage, writeStorage } from '../utils/storage';
 import { relaunch } from '@tauri-apps/plugin-process';
+import type { Update } from '@tauri-apps/plugin-updater';
 
 // 版本更新：入口在标题栏应用名右侧（绿色「更新」徽标，仅检测到新版本时显示）。
 // 检测到新版本后，简易日志小窗**常驻**显示在徽标下方（不依赖悬停），带 × 可关闭；
@@ -42,6 +45,17 @@ let cancelled = false;
 
 const isInstalling = computed(() => phase.value !== 'idle');
 
+// 同步"下载/安装中"到全局状态：定时静默检查据此跳过，避免替换 Update 实例
+watch(phase, (p) => {
+  updateRunning.value = p !== 'idle';
+});
+
+// 打开详细卡片：清空上一次的错误提示，避免旧错误残留在新一次操作前
+const openCard = () => {
+  errMsg.value = '';
+  openDetailCard();
+};
+
 // 简易日志：取前 5 行，超出部分提示点开详情
 const simpleLog = computed(() => {
   const lines = changelog.value.split('\n').filter((l) => l.trim());
@@ -65,15 +79,22 @@ const displayEntries = computed<Array<{ version: string; date: string; groups: R
   return notes ? [{ version: '', date: '', groups: groupReleaseNotes(notes), raw: notes }] : [];
 });
 
-// 下载完成后安装并重启
-const installAndRestart = async () => {
+// 安装并重启：全程使用调用时捕获的 Update 实例（定时检查可能替换 store 中的实例）
+const installAndRestart = async (u: Update) => {
   phase.value = 'install';
   try {
-    await inplaceUpdate.value?.install();
-    // Windows：安装器启动后应用自动退出；macOS/Linux 需手动重启
-    await relaunch();
+    await u.install();
   } catch (e) {
     errMsg.value = `安装失败: ${e}`;
+    phase.value = 'idle';
+    return;
+  }
+  // Windows：安装器启动后应用自动退出；macOS/Linux 需手动重启
+  try {
+    await relaunch();
+  } catch (e) {
+    // 安装已成功、仅重启失败：文案必须区分，避免用户误以为安装失败而重复操作
+    errMsg.value = `新版本已安装，但自动重启失败（${e}），请手动重启应用`;
     phase.value = 'idle';
   }
 };
@@ -81,7 +102,10 @@ const installAndRestart = async () => {
 // 详细卡片里的更新按钮：桌面原地下载（完成后自动安装重启）；浏览器回退打开下载页
 const doUpdate = async () => {
   if (isInstalling.value) return;
-  if (!inplaceUpdate.value) {
+  // 捕获本次操作用的实例：后续 download/install 全用它，
+  // 避免下载过程中定时检查替换 store 实例导致"安装的是另一个对象"
+  const u = inplaceUpdate.value;
+  if (!u) {
     // 浏览器调试环境回退：打开 Release 下载页
     try {
       await openReleasePage(`https://github.com/lsx666xsl/NNSerialTool/releases/latest`);
@@ -97,7 +121,7 @@ const doUpdate = async () => {
   try {
     let total = 0;
     let done = 0;
-    await inplaceUpdate.value.download((event) => {
+    await u.download((event) => {
       if (cancelled) return; // 已取消：忽略后续进度事件
       if (event.event === 'Started') {
         total = event.data.contentLength ?? 0;
@@ -106,17 +130,9 @@ const doUpdate = async () => {
         progress.value = total ? Math.min(99, Math.round((done / total) * 100)) : 0;
       }
     });
-    if (cancelled) {
-      // 取消发生在下载完成之后：释放已下载数据，不安装
-      try {
-        await inplaceUpdate.value.close();
-      } catch {
-        /* 资源可能已释放 */
-      }
-      return;
-    }
+    if (cancelled) return; // 取消流程已负责释放资源并重新检测
     progress.value = 100;
-    await installAndRestart();
+    await installAndRestart(u);
   } catch (e) {
     if (!cancelled) {
       errMsg.value = `下载失败: ${e}`;
@@ -125,34 +141,39 @@ const doUpdate = async () => {
   }
 };
 
-// 取消更新：停止安装流程并释放已下载的数据（如有）
+// 取消更新：中止下载、释放已下载字节，并保证"更新"入口仍可重试。
+// Update.close() 会连同 Update 资源一起释放（实例不可复用），因此 close 后立即
+// 重新检测拿一个新实例；检测失败时由 updateStore 清空实例（网络原因，可稍后重试）。
+// 注意：不把 inplaceUpdate 直接置 null——那会让徽标/更新入口消失，用户无从重试。
 const cancelUpdate = async () => {
   if (phase.value === 'install') return; // 安装已启动，无法回退
+  const u = inplaceUpdate.value;
   cancelled = true;
   phase.value = 'idle';
+  progress.value = 0;
   detailOpen.value = false;
   try {
-    await inplaceUpdate.value?.close(); // 释放已下载的字节资源
+    await u?.close(); // 释放已下载字节并中止后端下载任务
   } catch {
     /* 资源可能已释放 */
   }
-  inplaceUpdate.value = null;
   notifyCancelled();
+  void runUpdateCheck().catch(() => {});
 };
 
 const notifyCancelled = () => {
   // 通过 appStore 的 notify 提示取消结果（避免循环依赖，动态引入）
-  void import('../stores/appStore').then(({ notify }) => notify('更新已取消，已清理下载内容'));
+  void import('../stores/appStore').then(({ notify }) => notify('更新已取消，已清理下载内容，可重新点击「更新」重试'));
 };
 </script>
 
 <template>
   <div v-if="hasUpdate" class="update-wrap" @click.stop>
-    <button class="update-btn" title="发现新版本" @click="openDetailCard()">更新</button>
+    <button class="update-btn" title="发现新版本" @click="openCard()">更新</button>
 
     <!-- 常驻简易日志小窗：检测到新版本即显示（不依赖悬停），带 × 关闭（按版本记忆）；
          点击小窗打开中央详细卡片；详细卡片打开期间隐藏 -->
-    <div v-if="popVisible" class="update-pop" @click="openDetailCard()">
+    <div v-if="popVisible" class="update-pop" @click="openCard()">
       <button class="up-pop-close" title="关闭小窗（出现更新的版本时会再次显示）" @click.stop="dismissPop()">×</button>
       <p class="up-title">发现新版本 v{{ latestVersion }}</p>
       <pre class="up-log">{{ simpleLog }}</pre>
@@ -205,8 +226,10 @@ const notifyCancelled = () => {
           </div>
           <pre v-else class="up-log">（本次发布未填写更新说明）</pre>
         </div>
-        <div v-if="phase === 'download'" class="up-progress">
-          <div class="up-progress-bar" :style="{ width: progress + '%' }"></div>
+        <!-- 进度条：通过 CSS 变量驱动 ::before 宽度（不再给条本体内联 width，
+             否则 ::before 的 width:var(...) 永远无效、条子始终是 0%） -->
+        <div v-if="phase === 'download'" class="up-progress" :style="{ '--up-progress': progress + '%' }">
+          <div class="up-progress-bar"></div>
           <span class="up-progress-text">{{ progress }}%</span>
         </div>
         <p v-if="errMsg" class="up-card-err">{{ errMsg }}</p>

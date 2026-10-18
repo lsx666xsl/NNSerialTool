@@ -24,8 +24,13 @@ export const detailOpen = ref(false);
 export const checking = ref(false);
 // 最近一次检测的时间文字（设置按钮下方提示用）
 export const lastCheckText = ref('');
+// 下载/安装进行中标记（UpdateButton 维护）：定时静默检查在此期间跳过，
+// 避免检测替换 Update 实例、打断正在进行的下载/安装。
+export const updateRunning = ref(false);
 
 export const hasUpdate = computed(() => !!inplaceUpdate.value || !!apiInfo.value?.hasUpdate);
+// 是否有更新链路操作正在进行（检测中 / 下载中 / 安装中）
+export const updateBusy = computed(() => checking.value || updateRunning.value);
 export const latestVersion = computed(
   () => inplaceUpdate.value?.version ?? apiInfo.value?.latestVersion ?? ''
 );
@@ -67,10 +72,11 @@ let periodicTimer: ReturnType<typeof setInterval> | undefined;
 
 export const startPeriodicUpdateCheck = () => {
   void runUpdateCheck().catch(() => {});
-  periodicTimer ??= setInterval(
-    () => void runUpdateCheck().catch(() => {}),
-    4 * 60 * 60 * 1000
-  );
+  periodicTimer ??= setInterval(() => {
+    // 正在检测或下载/安装中：跳过本轮，避免并发请求与实例被替换
+    if (updateBusy.value) return;
+    void runUpdateCheck().catch(() => {});
+  }, 4 * 60 * 60 * 1000);
 };
 
 export const stopPeriodicUpdateCheck = () => {
@@ -84,29 +90,59 @@ export const stopPeriodicUpdateCheck = () => {
 // 返回 'update' | 'latest' | 'error' 供调用方提示。
 // checking 复位统一放外层 finally——检测到更新的路径会提前 return，
 // 此前复位只在第二个 try 的 finally 里，导致"检查中"状态卡死。
-export const runUpdateCheck = async (): Promise<'update' | 'latest' | 'error'> => {
+export type UpdateCheckResult = 'update' | 'latest' | 'error';
+
+// 共享进行中的检测 Promise：并发调用（启动定时检查 + 用户手动检查）复用同一次请求，
+// 避免同时向更新源发多个请求、后到的结果覆盖先到的 Update 实例。
+let checkInFlight: Promise<UpdateCheckResult> | null = null;
+
+const doUpdateCheck = async (): Promise<UpdateCheckResult> => {
   checking.value = true;
   try {
     try {
-      inplaceUpdate.value = (await check()) ?? null;
-      if (inplaceUpdate.value) {
-        lastCheckText.value = `已检测到新版本 v${inplaceUpdate.value.version}`;
+      const update = (await check()) ?? null;
+      // 替换实例前释放旧实例：Update 背后是 Rust 侧资源句柄，不能只丢引用。
+      // 下载/安装进行中时不动旧实例——UpdateButton 已捕获局部引用，立即 close 会中断下载。
+      const stale = inplaceUpdate.value;
+      inplaceUpdate.value = update;
+      if (stale && stale !== update && !updateRunning.value) void stale.close().catch(() => {});
+      if (update) {
+        lastCheckText.value = `已检测到新版本 v${update.version}`;
         return 'update';
       }
     } catch {
       /* 浏览器调试环境 / 插件不可用 → 走 GitHub API 回退 */
     }
-    apiInfo.value = await checkUpdate();
-    if (apiInfo.value?.hasUpdate) {
-      lastCheckText.value = `已检测到新版本 v${apiInfo.value.latestVersion}`;
+    const info = await checkUpdate();
+    apiInfo.value = info;
+    if (!info) {
+      // checkUpdate 返回 null = 网络/接口失败（与"已是最新"必须区分，不能误报最新）
+      lastCheckText.value = '检测失败，请检查网络';
+      return 'error';
+    }
+    if (info.hasUpdate) {
+      lastCheckText.value = `已检测到新版本 v${info.latestVersion}`;
       return 'update';
     }
     lastCheckText.value = '当前已是最新版本';
     return 'latest';
   } catch {
+    // 检测异常：清空可能残留的 Update 实例，避免徽标指向已被释放的资源
+    const stale = inplaceUpdate.value;
+    inplaceUpdate.value = null;
+    if (stale) void stale.close().catch(() => {});
     lastCheckText.value = '检测失败，请检查网络';
     return 'error';
   } finally {
     checking.value = false;
   }
+};
+
+export const runUpdateCheck = (): Promise<UpdateCheckResult> => {
+  // 重入复用：已有检测在途时直接返回同一个 Promise（不再发第二次请求）
+  if (checkInFlight) return checkInFlight;
+  checkInFlight = doUpdateCheck().finally(() => {
+    checkInFlight = null;
+  });
+  return checkInFlight;
 };

@@ -25,8 +25,9 @@ export type SerialConfig = {
   stopBits: number;
 };
 
-// 网络连接参数：TCP 客户端/UDP 用 host+port 作目标，TCP 服务端用 port 作监听端口，
-// UDP 另有 localPort（本地绑定端口，0 表示自动分配）与 localHost（本地绑定地址，空表示 0.0.0.0）。
+// 网络连接参数：TCP 客户端/UDP 用 host+port 作目标，TCP 服务端用 host+port 作监听地址
+// （host 留空 = 后端绑定 0.0.0.0）；UDP 另有 localPort（本地绑定端口）与 localHost。
+// 注意：localPort=0 时后端沿用目标 port（历史“对讲机式”行为，刻意保留，不是自动分配）。
 export type NetConfig = {
   host: string;
   port: number;
@@ -61,7 +62,7 @@ export type ConnectionSession = {
   sendText: string;
   messages: SessionMessage[];
   messageCount: number;
-  // 会话累计收发字节数：连接期间持续累加（清空消息不影响统计，重开连接不清零）
+  // 会话累计收发字节数：连接期间持续累加（重开连接不清零；点"清空"会一并归零，见 clearSessionReceive）
   txBytes: number;
   rxBytes: number;
   statusMsg: string;

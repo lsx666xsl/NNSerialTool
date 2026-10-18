@@ -14,7 +14,8 @@ export const decodeBytes = (data: number[]) => new TextDecoder().decode(new Uint
 export const bytesToHex = (data: number[]) =>
   data.map((b) => b.toString(16).padStart(2, '0').toUpperCase()).join(' ');
 
-// HEX 字符串转字节数组：忽略非十六进制字符，按两位解析（奇数末位补 0 视为前导 0）
+// HEX 字符串转字节数组：忽略非十六进制字符，按两位解析。
+// 奇数长度时在末尾补 0（即 "ABC" → AB C0，按“高位在前”的字节序处理），与发送框实时过滤配合。
 export const hexToBytes = (hex: string): number[] => {
   const clean = hex.replace(/[^0-9a-fA-F]/g, '');
   const pairs = clean.length % 2 === 0 ? clean : clean + '0';

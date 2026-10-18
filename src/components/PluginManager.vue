@@ -1,6 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue';
-import { open } from '@tauri-apps/plugin-dialog';
+import { onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import { installedList, isEnabled, setEnabled, syncInstalledFromDisk, uninstallPlugin } from '../plugins/host';
 import { fetchMarketIndex, installFromMarket, importLocalPlugin, type MarketEntry } from '../plugins/market';
 import { MARKET_SOURCES, readMarketSource, writeMarketSource } from '../plugins/config';
@@ -29,6 +28,8 @@ const onSync = async () => {
   }
 };
 const confirmId = ref('');
+// 二次确认定时器：面板卸载时清理，避免关闭后回调仍操作已销毁组件状态
+let confirmTimer: ReturnType<typeof setTimeout> | undefined;
 
 const sourceLabel = (source: string) => (source === 'builtin' ? '内置' : source === 'market' ? '市场' : '本地');
 
@@ -42,12 +43,18 @@ const togglePlugin = (id: string) => {
 const onUninstall = async (id: string) => {
   if (confirmId.value !== id) {
     confirmId.value = id; // 二次确认：3 秒内再点一次才真正卸载
-    setTimeout(() => {
+    if (confirmTimer) clearTimeout(confirmTimer);
+    confirmTimer = setTimeout(() => {
+      confirmTimer = undefined;
       if (confirmId.value === id) confirmId.value = '';
     }, 3000);
     return;
   }
   confirmId.value = '';
+  if (confirmTimer) {
+    clearTimeout(confirmTimer);
+    confirmTimer = undefined;
+  }
   try {
     await uninstallPlugin(id);
     notify(`插件 ${id} 已卸载`);
@@ -56,17 +63,14 @@ const onUninstall = async (id: string) => {
   }
 };
 
+// 本地导入：后端弹原生对话框取 zip（取消返回 null）；安装/校验由 installer 管线完成
 const onImport = async () => {
+  if (busy.value) return;
+  busy.value = true;
   try {
-    const path = await open({
-      multiple: false,
-      filters: [{ name: '插件包', extensions: ['zip'] }],
-      title: '导入插件包（zip）',
-    });
-    if (typeof path !== 'string' || !path) return;
-    busy.value = true;
-    await importLocalPlugin(path);
-    notify('插件导入成功，已加入功能切换列表');
+    const manifest = await importLocalPlugin();
+    if (!manifest) return; // 用户取消：静默返回
+    notify(`插件 ${manifest.name} v${manifest.version} 导入成功，已加入功能切换列表`);
   } catch (e) {
     notify(`导入失败：${errMsg(e)}`);
   } finally {
@@ -78,7 +82,8 @@ const onImport = async () => {
 const marketEntries = ref<MarketEntry[]>([]);
 const marketLoading = ref(false);
 const marketError = ref('');
-const installingId = ref('');
+// 按插件 id 记录安装中状态：不同插件可并行安装，同 id 防重入
+const installingIds = reactive(new Set<string>());
 const sourceUrl = ref(readMarketSource());
 
 const loadMarket = async () => {
@@ -98,14 +103,14 @@ const loadMarket = async () => {
 
 const saveSource = () => {
   writeMarketSource(sourceUrl.value);
-  notify('插件市场源已保存');
-  void loadMarket();
+  // 修改源后不自动重拉：避免"保存即请求"让用户以为已生效，提示手动刷新
+  notify('插件市场源已保存，需点「刷新」后生效');
 };
 
 const resetSource = () => {
   sourceUrl.value = MARKET_SOURCES[0];
   writeMarketSource(sourceUrl.value);
-  void loadMarket();
+  notify('已恢复默认市场源，需点「刷新」后生效');
 };
 
 const isInstalled = (id: string) => installedList.value.some((p) => p.id === id);
@@ -116,15 +121,21 @@ const hasUpdate = (entry: MarketEntry) => {
 };
 
 const onInstall = async (entry: MarketEntry) => {
-  installingId.value = entry.id;
+  if (installingIds.has(entry.id)) return; // 同一插件安装中：防重入
+  installingIds.add(entry.id);
   try {
     await installFromMarket(entry);
     notify(`已安装 ${entry.name} v${entry.version}，已加入功能切换列表`);
   } catch (e) {
     notify(`安装失败：${errMsg(e)}`);
   } finally {
-    installingId.value = '';
+    installingIds.delete(entry.id);
   }
+};
+
+// 遮罩点击：仅点中遮罩本身（而非卡片内部冒泡上来）才关闭面板
+const onMaskClick = (e: MouseEvent) => {
+  if (e.target === e.currentTarget) emit('close');
 };
 
 watch(tab, (t) => {
@@ -137,11 +148,18 @@ watch(tab, (t) => {
 onMounted(() => {
   void onSync();
 });
+
+onUnmounted(() => {
+  if (confirmTimer) {
+    clearTimeout(confirmTimer);
+    confirmTimer = undefined;
+  }
+});
 </script>
 
 <template>
   <Teleport to="body">
-    <div class="pm-mask" @click="emit('close')">
+    <div class="pm-mask" @click="onMaskClick">
       <div class="pm-card" :class="{ 'theme-dark': appliedTheme === 'dark' }" @click.stop>
         <button class="pm-close" title="关闭" @click="emit('close')">
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -240,10 +258,10 @@ onMounted(() => {
               <button
                 v-if="!isInstalled(entry.id) || hasUpdate(entry)"
                 class="pm-btn primary"
-                :disabled="installingId === entry.id"
+                :disabled="installingIds.has(entry.id)"
                 @click="onInstall(entry)"
               >
-                {{ installingId === entry.id ? '安装中…' : hasUpdate(entry) ? `更新到 v${entry.version}` : '安装' }}
+                {{ installingIds.has(entry.id) ? '安装中…' : hasUpdate(entry) ? `更新到 v${entry.version}` : '安装' }}
               </button>
               <span v-else class="pm-ok">已安装</span>
             </div>
@@ -251,7 +269,7 @@ onMounted(() => {
         </div>
 
         <p class="pm-note">
-          第三方插件仅获得其声明的有限能力（收发数据/本地存储），无法接触系统接口；安装前请确认来源可信。
+          第三方插件只能调用宿主白名单能力（收发数据、本地存储、文件导出）；文件路径与原生对话框来源由后端校验。插件与宿主运行在同一个 WebView 中，并非操作系统级沙箱，安装前请确认来源可信。
         </p>
       </div>
     </div>

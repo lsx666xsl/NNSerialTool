@@ -20,6 +20,17 @@ watchEffect(() => {
   document.documentElement.style.zoom = String(uiScale.value);
 });
 
+// resize 在拖动窗口时每秒可触发数十次：用 rAF 合并到每帧至多计算一次，
+// 避免频繁写 documentElement.style.zoom 引发同步重排/抖动（缩放结果不变）
+let resizeRaf = 0;
+const onWindowResize = () => {
+  if (resizeRaf) return;
+  resizeRaf = requestAnimationFrame(() => {
+    resizeRaf = 0;
+    updateUiScale();
+  });
+};
+
 // 自定义标题栏的窗口控制（无边框窗口）。浏览器调试环境无 Tauri API，静默降级。
 // getCurrentWindow 在非 Tauri 环境会抛错，需捕获避免白屏
 const appWindow = (() => {
@@ -35,6 +46,10 @@ const winClose = () => void appWindow?.close().catch(() => {});
 
 // 当前视图组件：经注册表解析（内置四视图 + 插件注册视图），未知键回退单屏
 const activeView = computed(() => resolveView(viewMode.value) ?? resolveView('detail'));
+// KeepAlive 只包内置视图：插件视图必须在切走时真正 unmount（否则插件 mount 清理契约失效）。
+// 两个分支分开渲染，KeepAlive 本身常驻，内置视图的缓存不会因为切到插件视图而整体丢弃。
+const builtinView = computed(() => (activeView.value?.source === 'builtin' ? activeView.value : null));
+const pluginView = computed(() => (activeView.value && activeView.value.source !== 'builtin' ? activeView.value : null));
 
 // ---------- 左侧面板折叠 ----------
 // 折叠后消息/波形区占满整宽；状态持久化，重启恢复
@@ -56,7 +71,7 @@ import ViewSwitch from './components/ViewSwitch.vue';
 // 状态与动作集中在 stores/appStore.ts，界面拆分在 components/ 下。
 // 等比缩放随窗口尺寸实时更新：拉宽/拉高 → UI 等比变大；缩小 → 等比变小。
 onMounted(() => {
-  window.addEventListener('resize', updateUiScale);
+  window.addEventListener('resize', onWindowResize);
   updateUiScale();
   void initApp();
   void initPlugins();
@@ -64,7 +79,9 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
-  window.removeEventListener('resize', updateUiScale);
+  window.removeEventListener('resize', onWindowResize);
+  if (resizeRaf) cancelAnimationFrame(resizeRaf);
+  resizeRaf = 0;
   stopPeriodicUpdateCheck();
   disposeApp();
 });
@@ -117,11 +134,13 @@ onUnmounted(() => {
         </div>
       </header>
 
-      <!-- keep-alive 缓存全部已用视图：切走时组件进内存缓存（数据持续入缓冲，
-           切回无重建空白与卡顿；大数据量下来回切换不重挂载）。内置四视图 + 插件视图统一缓存 -->
+      <!-- KeepAlive 只缓存内置四视图：切走时组件进内存缓存（切回无重建空白与卡顿）。
+           插件视图走独立分支、不缓存：切走即 unmount，保证插件注册的卸载钩子/清理函数及时执行。
+           KeepAlive 节点常驻（内部 v-if 只切缓存内容），内置视图缓存不会因打开插件视图而丢失。 -->
       <KeepAlive>
-        <component :is="activeView.component" v-if="activeView" :key="activeView.id" />
+        <component v-if="builtinView" :is="builtinView.component" :key="builtinView.id" />
       </KeepAlive>
+      <component v-if="pluginView" :is="pluginView.component" :key="pluginView.id" />
     </section>
     </div>
     <!-- 中央通知（INFO 提示上浮消失） -->

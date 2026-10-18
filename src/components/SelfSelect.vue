@@ -36,6 +36,52 @@ const currentLabel = computed(() => {
   return hit ? hit.label : String(props.modelValue ?? '');
 });
 
+// ---------- 键盘可达性（无障碍） ----------
+// 根节点作为 composite button 可 Tab 聚焦：Enter/Space 开关，Escape 关闭，
+// 上下方向键移动高亮，展开时 Enter/Space 选中高亮项。
+const hlIndex = ref(-1);
+const resetHl = () => {
+  const idx = props.options.findIndex((o) => o.value === props.modelValue);
+  hlIndex.value = idx >= 0 ? idx : 0;
+};
+const moveHl = (step: number) => {
+  const n = props.options.length;
+  if (n === 0) return;
+  hlIndex.value = (hlIndex.value + step + n) % n;
+};
+const onKeydown = (e: KeyboardEvent) => {
+  if (props.disabled) return;
+  switch (e.key) {
+    case 'Enter':
+    case ' ':
+      e.preventDefault();
+      if (!open.value) toggle();
+      else {
+        const opt = props.options[hlIndex.value];
+        if (opt) pick(opt.value);
+      }
+      break;
+    case 'Escape':
+      if (open.value) {
+        e.preventDefault();
+        open.value = false;
+      }
+      break;
+    case 'ArrowDown':
+      e.preventDefault();
+      if (!open.value) toggle();
+      else moveHl(1);
+      break;
+    case 'ArrowUp':
+      e.preventDefault();
+      if (!open.value) toggle();
+      else moveHl(-1);
+      break;
+    default:
+      break;
+  }
+};
+
 const toggle = () => {
   if (props.disabled) return;
   if (open.value) {
@@ -70,12 +116,15 @@ const toggle = () => {
   }
   popStyle.value = style;
   openRect = { left: rect.left, top: rect.top };
+  resetHl();
   open.value = true;
 };
 
 const pick = (v: string | number) => {
   emit('update:modelValue', v);
   open.value = false;
+  // 选择后把焦点交还触发框：键盘用户可继续操作，避免焦点随 Teleport 浮层一起消失
+  wrapEl.value?.focus();
 };
 
 const onDocClick = (e: MouseEvent) => {
@@ -117,7 +166,14 @@ onUnmounted(() => {
     ref="wrapEl"
     class="self-select"
     :class="{ full, disabled, 'theme-dark': appliedTheme === 'dark', open }"
+    tabindex="0"
+    role="button"
+    aria-haspopup="listbox"
+    :aria-expanded="open"
+    :aria-disabled="disabled"
+    :aria-label="currentLabel || placeholder"
     @click="toggle"
+    @keydown="onKeydown"
   >
     <span class="ss-label" :class="{ placeholder: currentLabel === placeholder && placeholder }">{{ currentLabel || placeholder }}</span>
     <svg class="ss-arrow" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
@@ -126,12 +182,24 @@ onUnmounted(() => {
   </div>
 
   <Teleport to="body">
-    <div v-if="open" ref="popEl" class="self-select-pop" :class="{ 'theme-dark': appliedTheme === 'dark' }" :style="popStyle">
+    <!-- @click.stop：浮层 Teleport 到 body，点击选项若继续冒泡会触发页面级的"点外部关闭"，
+         导致设置菜单/侧栏浮层被误关（选项点击本身也会被同时处理） -->
+    <div
+      v-if="open"
+      ref="popEl"
+      class="self-select-pop"
+      :class="{ 'theme-dark': appliedTheme === 'dark' }"
+      :style="popStyle"
+      role="listbox"
+      @click.stop
+    >
       <div
-        v-for="o in options"
+        v-for="(o, idx) in options"
         :key="o.value"
         class="ss-opt"
-        :class="{ active: o.value === modelValue }"
+        :class="{ active: o.value === modelValue, hl: idx === hlIndex }"
+        role="option"
+        :aria-selected="o.value === modelValue"
         @click="pick(o.value)"
       >
         {{ o.label }}
@@ -171,6 +239,13 @@ onUnmounted(() => {
 .self-select.disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+/* 键盘聚焦提示：与输入框 focus 同观感（鼠标点击不显示，避免常驻描边） */
+.self-select:focus-visible {
+  outline: none;
+  border-color: rgba(56, 116, 203, 0.65);
+  box-shadow: 0 0 0 3px rgba(56, 116, 203, 0.14);
 }
 
 .ss-label {
@@ -222,6 +297,11 @@ onUnmounted(() => {
   background: rgba(59, 111, 212, 0.08);
 }
 
+/* 键盘高亮项：与 hover 同观感，键盘移动时明确当前选中位置 */
+.ss-opt.hl {
+  background: rgba(59, 111, 212, 0.1);
+}
+
 .ss-opt.active {
   background: rgba(59, 111, 212, 0.14);
   color: #3563c2;
@@ -255,6 +335,16 @@ onUnmounted(() => {
 
 .self-select-pop.theme-dark .ss-opt:hover {
   background: rgba(87, 157, 245, 0.14);
+}
+
+.self-select-pop.theme-dark .ss-opt.hl {
+  background: rgba(87, 157, 245, 0.16);
+}
+
+/* 深色主题下的键盘聚焦描边 */
+.theme-dark .self-select:focus-visible {
+  border-color: rgba(87, 157, 245, 0.6);
+  box-shadow: 0 0 0 3px rgba(87, 157, 245, 0.16);
 }
 
 .self-select-pop.theme-dark .ss-opt.active {

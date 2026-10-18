@@ -16,6 +16,9 @@
 //                                              发送
 //   nn tcp  --host H --port P [同 log 过滤参数]  读 TCP 设备日志
 //   nn udp  --port P [同 log 过滤参数]           收 UDP 日志
+//   nn version [--json]                        打印 nn / 应用版本与协议版本
+//   nn check-update [--json]                   检查 GitHub Release 是否有新版本
+//   nn install-skill                           安装 AI SKILL 文件
 //
 // --nnwave：按 NN-Wave 协议解码输出 CSV（t_ms,ch1,ch2,...）——解码为 nn 内置实现，
 // 与波形视图 / 固件模板 nnwave.c 同协议（AA 55 | type | N | seq | f32×N | CRC8），
@@ -23,14 +26,23 @@
 use serialport::SerialPortType;
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
-use std::net::{TcpStream, UdpSocket};
+use std::net::{TcpStream, ToSocketAddrs, UdpSocket};
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const EXIT_OK: i32 = 0;
 const EXIT_ARGS: i32 = 2;
 const EXIT_OPEN: i32 = 3;
+// 检查更新专用退出码：4=检查失败（网络/解析），10=发现新版本（便于脚本判断）
+const EXIT_NET: i32 = 4;
+const EXIT_UPDATE: i32 = 10;
 const MAX_CHANNELS: usize = 64;
+// 更新源与主程序保持一致：GitHub Release 优先，jsDelivr 备源
+const UPDATE_URLS: [&str; 2] = [
+    "https://github.com/lsx666xsl/NNSerialTool/releases/latest/download/latest.json",
+    "https://cdn.jsdelivr.net/gh/lsx666xsl/NNSerialTool@master/latest.json",
+];
+const REPO_URL: &str = "https://github.com/lsx666xsl/NNSerialTool";
 
 fn print_usage() {
     println!(
@@ -47,6 +59,8 @@ fn print_usage() {
                                           读 TCP 设备日志
   nn udp  --port <本地端口> [同 log 过滤参数]
                                           收 UDP 日志
+  nn version [--json]                     打印版本（nn / 应用 / NN-Wave 协议）
+  nn check-update [--json]                检查是否有新版本（0=最新，10=有更新，4=检查失败）
 
 参数:
   -p / --port <口>       串口名（log/send 用：Windows COM3 / Linux /dev/ttyUSB0 /
@@ -59,8 +73,9 @@ fn print_usage() {
                          （解码为 nn 内置，无需安装波形插件）
   -d / --data <内容>     发送内容（--hex 时为 HEX 字符串）
   --out <文件>           日志文件路径（默认 exe 同级 NNlog/<来源>-<时间戳>.log，自动创建目录）
+  --json                 仅 version / check-update 使用：输出机器可读 JSON
 
-退出码: 0 成功 / 2 参数错误 / 3 打开失败"
+退出码: 0 成功 / 2 参数错误 / 3 打开失败 / 4 检查更新失败 / 10 有新版本"
     );
 }
 
@@ -94,7 +109,9 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
     while i < args.len() {
         let take_value = |i: &mut usize, name: &str| -> Result<String, String> {
             *i += 1;
-            args.get(*i).cloned().ok_or_else(|| format!("参数 {} 缺少值", name))
+            args.get(*i)
+                .cloned()
+                .ok_or_else(|| format!("参数 {} 缺少值", name))
         };
         match args[i].as_str() {
             "-p" | "--port" => o.port = take_value(&mut i, "-p")?,
@@ -128,43 +145,81 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
 
 // ---------- 输出端：stdout + 可选日志文件双写 ----------
 enum SinkKind {
-    Text { line: String },
+    Text {
+        line: Vec<u8>,
+    },
     Hex,
-    NnWave { buf: Vec<u8>, seq_last: i32, t0: Instant },
+    NnWave {
+        buf: Vec<u8>,
+        seq_last: i32,
+        t0: Instant,
+    },
 }
 
 struct Sink {
     kind: SinkKind,
     log: Option<File>,
+    // 日志写入失败只提示一次，避免刷屏（但绝不静默吞掉首次错误）
+    log_warned: bool,
 }
 
 impl Sink {
     fn new(o: &Opts, log_path: &PathBuf, t0: Instant) -> Sink {
-        let log = OpenOptions::new().create(true).append(true).open(log_path).ok();
+        let log = match OpenOptions::new().create(true).append(true).open(log_path) {
+            Ok(f) => Some(f),
+            Err(e) => {
+                eprintln!(
+                    "[nn] 警告: 无法写入日志文件 {}（{}），本次仅输出到 stdout",
+                    log_path.display(),
+                    e
+                );
+                None
+            }
+        };
         let kind = if o.nnwave {
-            SinkKind::NnWave { buf: Vec::new(), seq_last: -1, t0 }
+            SinkKind::NnWave {
+                buf: Vec::new(),
+                seq_last: -1,
+                t0,
+            }
         } else if o.hex {
             SinkKind::Hex
         } else {
-            SinkKind::Text { line: String::new() }
+            SinkKind::Text { line: Vec::new() }
         };
-        Sink { kind, log }
+        Sink {
+            kind,
+            log,
+            log_warned: false,
+        }
     }
 
     // 喂一段原始字节；返回输出的行数（供 --lines 退出条件使用）
     fn feed(&mut self, data: &[u8]) -> usize {
         let mut emitted = 0usize;
+        // 单行上限 64KB：设备输出二进制/无换行流时防止内存无界增长
+        const MAX_LINE: usize = 64 * 1024;
         let texts: Vec<String> = match &mut self.kind {
             SinkKind::Text { line } => {
                 let mut out = Vec::new();
                 for &b in data {
                     if b == b'\n' {
-                        out.push(line.trim_end_matches('\r').to_string());
+                        out.push(
+                            String::from_utf8_lossy(line)
+                                .trim_end_matches('\r')
+                                .to_string(),
+                        );
                         line.clear();
                         emitted += 1;
                     } else {
-                        // 设备日志按字节透传（UTF-8 多字节在行内自然拼接）
-                        line.push(b as char);
+                        // 按字节累积，整行后再做 UTF-8 解码：多字节字符跨读块也不会乱码
+                        line.push(b);
+                        if line.len() >= MAX_LINE {
+                            eprintln!("[nn] 警告: 单行超过 {}KB，已强制切行输出", MAX_LINE / 1024);
+                            out.push(String::from_utf8_lossy(line).to_string());
+                            line.clear();
+                            emitted += 1;
+                        }
                     }
                 }
                 out
@@ -174,10 +229,18 @@ impl Sink {
                     Vec::new()
                 } else {
                     emitted = 1;
-                    vec![data.iter().map(|b| format!("{:02X}", b)).collect::<Vec<_>>().join(" ")]
+                    vec![data
+                        .iter()
+                        .map(|b| format!("{:02X}", b))
+                        .collect::<Vec<_>>()
+                        .join(" ")]
                 }
             }
-            SinkKind::NnWave { buf, seq_last, t0: start } => {
+            SinkKind::NnWave {
+                buf,
+                seq_last,
+                t0: start,
+            } => {
                 buf.extend_from_slice(data);
                 let mut out = Vec::new();
                 // 与固件/上位机一致的状态机：扫帧头 → 校验长度与 CRC8 → 出帧
@@ -235,12 +298,22 @@ impl Sink {
         for text in &texts {
             println!("{}", text);
             if let Some(f) = &mut self.log {
-                writeln!(f, "{}", text).ok();
+                if let Err(e) = writeln!(f, "{}", text) {
+                    if !self.log_warned {
+                        self.log_warned = true;
+                        eprintln!("[nn] 警告: 日志写入失败（{}），后续仅输出到 stdout", e);
+                    }
+                }
             }
         }
         io::stdout().flush().ok();
         if let Some(f) = &mut self.log {
-            f.flush().ok();
+            if let Err(e) = f.flush() {
+                if !self.log_warned {
+                    self.log_warned = true;
+                    eprintln!("[nn] 警告: 日志刷新失败（{}）", e);
+                }
+            }
         }
         emitted
     }
@@ -251,7 +324,11 @@ fn nnwave_crc8(data: &[u8]) -> u8 {
     for &b in data {
         crc ^= b;
         for _ in 0..8 {
-            crc = if crc & 0x80 != 0 { (crc << 1) ^ 0x07 } else { crc << 1 };
+            crc = if crc & 0x80 != 0 {
+                (crc << 1) ^ 0x07
+            } else {
+                crc << 1
+            };
         }
     }
     crc
@@ -266,10 +343,19 @@ fn resolve_log_path(o: &Opts, source: &str) -> Result<PathBuf, String> {
         }
         return Ok(path);
     }
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH).map_err(|e| e.to_string())?.as_secs();
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| e.to_string())?
+        .as_secs();
     let safe: String = source
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '.' || c == '-' { c } else { '_' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '.' || c == '-' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect();
     let name = format!("{}-{}.log", safe, ts);
     // 首选 exe 同级 NNlog/；不可写（AppImage 只读挂载 / Linux 系统目录无权限）则回退 ~/NNlog/
@@ -285,12 +371,162 @@ fn resolve_log_path(o: &Opts, source: &str) -> Result<PathBuf, String> {
             }
         }
     }
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
+    let home = std::env::var("USERPROFILE")
+        .or_else(|_| std::env::var("HOME"))
         .unwrap_or_else(|_| ".".into());
     let dir = PathBuf::from(home).join("NNlog");
     fs::create_dir_all(&dir).map_err(|e| format!("创建日志目录失败: {}", e))?;
     Ok(dir.join(name))
+}
+
+// ---------- 版本与更新检查 ----------
+const NN_VERSION: &str = env!("CARGO_PKG_VERSION");
+const NN_PROTOCOL: &str = "NN-Wave v1";
+
+// 语义化版本比较：只取前 3 段数字，忽略 -pre/+build 后缀（与主程序更新检测口径一致）
+fn parse_version(v: &str) -> Option<(u64, u64, u64)> {
+    let core = v.trim().trim_start_matches('v');
+    let core = core.split(['-', '+']).next().unwrap_or(core);
+    let mut it = core.split('.');
+    let major = it.next()?.parse().ok()?;
+    let minor = it.next().unwrap_or("0").parse().unwrap_or(0);
+    let patch = it.next().unwrap_or("0").parse().unwrap_or(0);
+    Some((major, minor, patch))
+}
+
+fn version_gt(a: &str, b: &str) -> bool {
+    match (parse_version(a), parse_version(b)) {
+        (Some(a), Some(b)) => a > b,
+        _ => false,
+    }
+}
+
+// nn version：打印 nn / 应用 / 协议版本（--json 供脚本消费）
+fn cmd_version(args: &[String]) -> i32 {
+    let json = args.iter().any(|a| a == "--json");
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "name": "nn",
+                "version": NN_VERSION,
+                "app": "NNSerialTool",
+                "appVersion": NN_VERSION,
+                "protocol": NN_PROTOCOL,
+                "repo": REPO_URL
+            })
+        );
+    } else {
+        println!("nn {}", NN_VERSION);
+        println!("NNSerialTool {}", NN_VERSION);
+        println!("协议: {}", NN_PROTOCOL);
+    }
+    EXIT_OK
+}
+
+// 拉取 latest.json（GitHub Release 优先，jsDelivr 备源）
+fn fetch_latest_json() -> Result<(String, serde_json::Value), String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .user_agent(format!("nn/{}", NN_VERSION))
+        .build()
+        .map_err(|e| format!("初始化 HTTP 客户端失败: {}", e))?;
+    let mut last_err = String::new();
+    for url in UPDATE_URLS {
+        match client.get(url).send() {
+            Ok(resp) if resp.status().is_success() => match resp.text() {
+                Ok(text) => match serde_json::from_str::<serde_json::Value>(&text) {
+                    Ok(v) => return Ok((url.to_string(), v)),
+                    Err(e) => last_err = format!("{} 返回的 latest.json 解析失败: {}", url, e),
+                },
+                Err(e) => last_err = format!("{} 读取响应失败: {}", url, e),
+            },
+            Ok(resp) => last_err = format!("{} 返回 HTTP {}", url, resp.status()),
+            Err(e) => last_err = format!("{} 请求失败: {}", url, e),
+        }
+    }
+    Err(last_err)
+}
+
+// nn check-update：检查 GitHub Release 是否有新版本
+// 退出码：0 已是最新；10 有更新；4 检查失败（网络/解析）；2 参数错误
+fn cmd_check_update(args: &[String]) -> i32 {
+    let json = args.iter().any(|a| a == "--json");
+    let (source, body) = match fetch_latest_json() {
+        Ok(v) => v,
+        Err(e) => {
+            if json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "current": NN_VERSION,
+                        "error": e,
+                        "updateAvailable": false
+                    })
+                );
+            } else {
+                eprintln!("检查更新失败: {}", e);
+            }
+            return EXIT_NET;
+        }
+    };
+    let latest = body
+        .get("version")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let notes = body
+        .get("notes")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    if latest.is_empty() {
+        if json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "current": NN_VERSION,
+                    "error": "latest.json 缺少 version 字段",
+                    "updateAvailable": false
+                })
+            );
+        } else {
+            eprintln!("检查更新失败: latest.json 缺少 version 字段");
+        }
+        return EXIT_NET;
+    }
+    let has_update = version_gt(&latest, NN_VERSION);
+    if json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "current": NN_VERSION,
+                "latest": latest,
+                "updateAvailable": has_update,
+                "notes": notes,
+                "source": source,
+                "repo": REPO_URL
+            })
+        );
+    } else if has_update {
+        println!("当前版本: {}", NN_VERSION);
+        println!("最新版本: {}", latest);
+        println!("发现新版本，可前往下载: {}/releases/latest", REPO_URL);
+        if !notes.trim().is_empty() {
+            println!();
+            println!("更新说明:");
+            for line in notes.lines().take(20) {
+                println!("{}", line);
+            }
+        }
+    } else {
+        println!("当前已是最新版本（v{}）", NN_VERSION);
+    }
+    if has_update {
+        EXIT_UPDATE
+    } else {
+        EXIT_OK
+    }
 }
 
 // ---------- 公共读取循环：限制条件（行数/时长）+ Ctrl+C 原生终止 ----------
@@ -327,15 +563,16 @@ description: NNSerialTool 命令行工具——读取串口/TCP/UDP 设备日志
 - `nn log -p COM3 -b 115200 -w -t 10` — NN-Wave 解码为 CSV（t_ms,ch1,ch2,...），无需安装波形插件
 - `nn log -p COM3 -b 115200 -x -n 20` — HEX 字节流
 - `nn log ... -o D:\path\device.log` — 同步落盘到指定文件
-- `nn send -p COM3 -b 115200 -d \"AT
-\"` — 发送文本（-x 为 HEX 字节）
+- `nn send -p COM3 -b 115200 -d "AT\r\n"` — 发送文本（-x 为 HEX 字节）
 - `nn tcp --host 192.168.1.10 --port 9000 -w -n 100` — TCP 设备
 - `nn udp --port 9000 -w -n 50` — UDP 接收
+- `nn version [--json]` — 查看 nn / 应用 / NN-Wave 协议版本
+- `nn check-update [--json]` — 检查是否有新版本（退出码 0=最新，10=有更新，4=检查失败）
 - `nn install-skill` — 重装本 SKILL 文件到 ~/.agents/skills/nn/
 
 ## 退出码
 
-0 成功 / 2 参数错误 / 3 打开失败（含端口被占用）
+0 成功 / 2 参数错误 / 3 打开失败（含端口被占用）/ 4 检查更新失败 / 10 发现新版本
 
 ## 注意
 
@@ -352,7 +589,10 @@ fn cmd_install_skill() -> i32 {
         eprintln!("[nn] 无法定位用户目录（USERPROFILE/HOME 均未设置）");
         return EXIT_OPEN;
     }
-    let dir = std::path::Path::new(&home).join(".agents").join("skills").join("nn");
+    let dir = std::path::Path::new(&home)
+        .join(".agents")
+        .join("skills")
+        .join("nn");
     if let Err(e) = fs::create_dir_all(&dir) {
         eprintln!("[nn] 创建目录失败: {}", e);
         return EXIT_OPEN;
@@ -390,7 +630,8 @@ fn cmd_help(topic: Option<&str>) -> i32 {
 
 示例:
   nn log -p COM3 -w -t 10        采集 10 秒并解码为 CSV
-  nn log -p COM3 -n 200          读 200 行日志"),
+  nn log -p COM3 -n 200          读 200 行日志"
+        ),
         Some("send") => println!(
             "nn send —— 发送文本或 HEX 字节
 
@@ -398,8 +639,9 @@ fn cmd_help(topic: Option<&str>) -> i32 {
   nn send -p COM3 [-b 115200] -d <内容> [-x]
 
 示例:
-  nn send -p COM3 -d \"AT\r\n\"
-  nn send -p COM3 -x -d \"01 03 00 00 00 02\""),
+  nn send -p COM3 -d \"AT\\r\\n\"
+  nn send -p COM3 -x -d \"01 03 00 00 00 02\""
+        ),
         Some("tcp") => println!(
             "nn tcp —— 读取 TCP 设备日志
 
@@ -407,15 +649,20 @@ fn cmd_help(topic: Option<&str>) -> i32 {
   nn tcp -H <地址> --port <端口> [-w] [-x] [-n N] [-t 秒] [-o 文件]
 
 示例:
-  nn tcp -H 127.0.0.1 --port 9000 -w -n 100"),
+  nn tcp -H 127.0.0.1 --port 9000 -w -n 100"
+        ),
         Some("udp") => println!(
             "nn udp —— 接收 UDP 数据报
 
 用法:
-  nn udp --port <本地端口> [-w] [-x] [-n N] [-t 秒]"),
-        Some("ports") | None => print_usage(),
+  nn udp --port <本地端口> [-w] [-x] [-n N] [-t 秒]"
+        ),
+        Some("ports") | Some("version") | Some("check-update") | None => print_usage(),
         Some(other) => {
-            println!("未知主题: {}（可选 log/send/tcp/udp/ports）", other);
+            println!(
+                "未知主题: {}（可选 log/send/tcp/udp/ports/version/check-update）",
+                other
+            );
             return EXIT_ARGS;
         }
     }
@@ -456,7 +703,15 @@ fn open_serial(o: &Opts) -> Result<Box<dyn serialport::SerialPort>, (String, i32
     serialport::new(&o.port, o.baud)
         .timeout(Duration::from_millis(100))
         .open()
-        .map_err(|e| (format!("打开 {} 失败: {}（若被 GUI 占用请先在界面关闭连接）", o.port, e), EXIT_OPEN))
+        .map_err(|e| {
+            (
+                format!(
+                    "打开 {} 失败: {}（若被 GUI 占用请先在界面关闭连接）",
+                    o.port, e
+                ),
+                EXIT_OPEN,
+            )
+        })
 }
 
 fn cmd_log(args: &[String]) -> i32 {
@@ -495,18 +750,38 @@ fn cmd_log(args: &[String]) -> i32 {
             break;
         }
         match port.read(&mut buf) {
-            Ok(0) => {}
+            Ok(0) => std::thread::sleep(Duration::from_millis(10)), // 异常设备的空读，避免忙等
             Ok(n) => {
                 lines += sink.feed(&buf[..n]);
             }
-            Err(ref e) if e.kind() == io::ErrorKind::TimedOut || e.kind() == io::ErrorKind::WouldBlock => {}
+            Err(ref e)
+                if e.kind() == io::ErrorKind::TimedOut || e.kind() == io::ErrorKind::WouldBlock => {
+            }
             Err(e) => {
                 eprintln!("[nn] 读取错误: {}", e);
-                break;
+                return EXIT_OPEN;
             }
         }
     }
     EXIT_OK
+}
+
+// 把 -d 内容转换为待发送字节：文本按 UTF-8；--hex 严格解析（偶数长度纯十六进制）。
+// 抽成纯函数便于单测；任何非法输入返回 Err（调用方给 EXIT_ARGS），绝不静默丢字节。
+fn parse_output_payload(data: &str, hex: bool) -> Result<Vec<u8>, String> {
+    if !hex {
+        return Ok(data.as_bytes().to_vec());
+    }
+    let cleaned: String = data.chars().filter(|c| !c.is_whitespace()).collect();
+    if cleaned.is_empty()
+        || cleaned.len() % 2 != 0
+        || !cleaned.chars().all(|c| c.is_ascii_hexdigit())
+    {
+        return Err("--hex 内容必须是偶数长度的十六进制字符串（如 \"01 03 00 00\"）".into());
+    }
+    Ok((0..cleaned.len() / 2)
+        .filter_map(|i| u8::from_str_radix(&cleaned[i * 2..i * 2 + 2], 16).ok())
+        .collect())
 }
 
 fn cmd_send(args: &[String]) -> i32 {
@@ -521,20 +796,20 @@ fn cmd_send(args: &[String]) -> i32 {
         eprintln!("参数错误: 缺少发送内容（-d）");
         return EXIT_ARGS;
     }
+    // 先做纯参数校验再打开串口：非法 HEX 不应占用/试探设备端口
+    let payload = match parse_output_payload(&o.data, o.hex) {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("参数错误: {}", e);
+            return EXIT_ARGS;
+        }
+    };
     let mut port = match open_serial(&o) {
         Ok(p) => p,
         Err((msg, code)) => {
             eprintln!("{}", msg);
             return code;
         }
-    };
-    let payload: Vec<u8> = if o.hex {
-        let cleaned: String = o.data.chars().filter(|c| !c.is_whitespace()).collect();
-        (0..cleaned.len() / 2)
-            .filter_map(|i| u8::from_str_radix(&cleaned[i * 2..i * 2 + 2], 16).ok())
-            .collect()
-    } else {
-        o.data.clone().into_bytes()
     };
     match port.write_all(&payload).and_then(|_| port.flush()) {
         Ok(_) => {
@@ -574,7 +849,20 @@ fn cmd_tcp(args: &[String]) -> i32 {
             return EXIT_OPEN;
         }
     };
-    let mut stream = match TcpStream::connect((o.host.as_str(), o.tcp_port)) {
+    let mut stream = match TcpStream::connect_timeout(
+        &match (o.host.as_str(), o.tcp_port)
+            .to_socket_addrs()
+            .ok()
+            .and_then(|mut it| it.next())
+        {
+            Some(a) => a,
+            None => {
+                eprintln!("地址解析失败: {}:{}", o.host, o.tcp_port);
+                return EXIT_OPEN;
+            }
+        },
+        Duration::from_secs(5),
+    ) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("连接 {}:{} 失败: {}", o.host, o.tcp_port, e);
@@ -583,7 +871,9 @@ fn cmd_tcp(args: &[String]) -> i32 {
     };
     eprintln!("[nn] {}:{} 已连接（Ctrl+C 退出）", o.host, o.tcp_port);
     eprintln!("[nn] 日志文件: {}", log_path.display());
-    stream.set_read_timeout(Some(Duration::from_millis(100))).ok();
+    stream
+        .set_read_timeout(Some(Duration::from_millis(100)))
+        .ok();
     let started = Instant::now();
     let mut sink = Sink::new(&o, &log_path, started);
     let mut lines = 0usize;
@@ -600,10 +890,12 @@ fn cmd_tcp(args: &[String]) -> i32 {
             Ok(n) => {
                 lines += sink.feed(&buf[..n]);
             }
-            Err(ref e) if e.kind() == io::ErrorKind::TimedOut || e.kind() == io::ErrorKind::WouldBlock => {}
+            Err(ref e)
+                if e.kind() == io::ErrorKind::TimedOut || e.kind() == io::ErrorKind::WouldBlock => {
+            }
             Err(e) => {
                 eprintln!("[nn] 读取错误: {}", e);
-                break;
+                return EXIT_OPEN;
             }
         }
     }
@@ -646,7 +938,8 @@ fn cmd_udp(args: &[String]) -> i32 {
     let started = Instant::now();
     let mut sink = Sink::new(&o, &log_path, started);
     let mut lines = 0usize;
-    let mut buf = [0u8; 4096];
+    // UDP 单包上限 65507，缓冲必须足够大，否则 >4096 的数据报会被内核静默截断
+    let mut buf = [0u8; 65535];
     loop {
         if limits_reached(&o, lines, started) {
             break;
@@ -656,10 +949,12 @@ fn cmd_udp(args: &[String]) -> i32 {
                 eprintln!("[nn] 来自 {}:{}", from, n); // 状态走 stderr，stdout 保持纯数据
                 lines += sink.feed(&buf[..n]);
             }
-            Err(ref e) if e.kind() == io::ErrorKind::TimedOut || e.kind() == io::ErrorKind::WouldBlock => {}
+            Err(ref e)
+                if e.kind() == io::ErrorKind::TimedOut || e.kind() == io::ErrorKind::WouldBlock => {
+            }
             Err(e) => {
                 eprintln!("[nn] 读取错误: {}", e);
-                break;
+                return EXIT_OPEN;
             }
         }
     }
@@ -671,11 +966,14 @@ fn main() {
     let code = match args.first().map(|s| s.as_str()) {
         Some("ports") => cmd_ports(),
         Some("install-skill") => cmd_install_skill(),
+        Some("version") => cmd_version(&args[1..]),
+        Some("check-update") => cmd_check_update(&args[1..]),
         Some("log") => cmd_log(&args[1..]),
         Some("send") => cmd_send(&args[1..]),
         Some("tcp") => cmd_tcp(&args[1..]),
         Some("udp") => cmd_udp(&args[1..]),
         Some("help") => cmd_help(args.get(1).map(|s| s.as_str())),
+        Some("--version") | Some("-V") => cmd_version(&args[1..]),
         Some("--help") | Some("-h") | None => {
             print_usage();
             EXIT_OK
@@ -687,4 +985,53 @@ fn main() {
         }
     };
     std::process::exit(code);
+}
+
+// ============ 单元测试（cargo test --bin nn） ============
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hex_payload_ok() {
+        assert_eq!(
+            parse_output_payload("01 03 00 00", true).unwrap(),
+            vec![0x01, 0x03, 0x00, 0x00]
+        );
+        assert_eq!(
+            parse_output_payload("0a0B", true).unwrap(),
+            vec![0x0a, 0x0b]
+        );
+        assert_eq!(parse_output_payload("AT", false).unwrap(), b"AT".to_vec());
+    }
+
+    #[test]
+    fn hex_payload_invalid_rejected() {
+        // 奇数长度 / 非法字符 / 空内容都必须报错，不能静默丢字节或 panic
+        assert!(parse_output_payload("012", true).is_err());
+        assert!(parse_output_payload("01 0G", true).is_err());
+        assert!(parse_output_payload("全角１２", true).is_err());
+        assert!(parse_output_payload("  ", true).is_err());
+    }
+
+    #[test]
+    fn version_compare() {
+        assert!(version_gt("0.6.3", "0.6.2"));
+        assert!(version_gt("v0.7.0", "0.6.9"));
+        assert!(version_gt("1.0.0", "0.99.99"));
+        assert!(!version_gt("0.6.2", "0.6.2"));
+        assert!(!version_gt("0.6.2-beta.1", "0.6.2"));
+        assert!(!version_gt("0.6.2", "0.6.3"));
+        assert!(!version_gt("bad", "0.6.2"));
+        assert_eq!(parse_version("v1.2"), Some((1, 2, 0)));
+    }
+
+    #[test]
+    fn skill_md_has_new_commands_and_valid_send_example() {
+        assert!(SKILL_MD.contains("nn version"));
+        assert!(SKILL_MD.contains("nn check-update"));
+        // 回归：历史版本这里曾把 \"AT 与真实换行写进 raw string，AI 读到的示例是坏的
+        assert!(SKILL_MD.contains(r#"-d "AT\r\n""#));
+        assert!(!SKILL_MD.contains("\"AT\n"));
+    }
 }

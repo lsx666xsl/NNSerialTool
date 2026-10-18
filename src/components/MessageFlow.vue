@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { computed, onActivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { SessionMessage } from '../types';
 import { autoScroll, fontSize } from '../stores/appStore';
 import { bytesToHex } from '../utils/format';
@@ -111,6 +111,13 @@ onMounted(() => {
   if (flowEl.value) resizeObserver.observe(flowEl.value);
 });
 onUnmounted(() => resizeObserver?.disconnect());
+
+// KeepAlive 切回：缓存期间数据持续入缓冲，重新激活时若开启自动滚动则贴底，并刷新“↓ 最新”显隐
+// （否则切回后停在旧滚动位置，底部按钮状态也停留在一帧前）
+onActivated(() => {
+  if (autoScroll.value) scrollToBottom();
+  else updateScrollState();
+});
 </script>
 
 <template>
@@ -130,7 +137,7 @@ onUnmounted(() => resizeObserver?.disconnect());
       <div
         v-for="message in visibleMessages"
         :key="message.id"
-        v-memo="[msgTs(message), msgRx(message), msgTx(message), msgHex(message)]"
+        v-memo="[msgTs(message), msgRx(message), msgTx(message), msgHex(message), isContinuous]"
         class="flow-line"
         :class="message.direction.toLowerCase()"
       >

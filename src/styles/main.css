@@ -241,9 +241,9 @@ h3 {
 }
 
 /* ============ 输入控件 ============ */
-/* select 自绘下拉箭头：原生箭头贴边且不跟随深色主题，这里统一距右缘 10px */
+/* 原生 select 已全部由 SelfSelect 自绘组件替代（浮层位置/主题可控），
+   这里只保留 input / textarea 的通用观感 */
 input,
-select,
 textarea {
   width: 100%;
   border: 1px solid rgba(23, 26, 33, 0.16);
@@ -257,33 +257,10 @@ textarea {
   transition: border-color 0.18s ease, box-shadow 0.18s ease, background-color 0.18s ease;
 }
 
-select {
-  appearance: none;
-  padding-right: 30px;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 10px center;
-  background-size: 12px;
-  cursor: pointer;
-}
-
-/* 深色模式下 option 显式配色，避免 Windows WebView 用系统白底导致“泛白” */
-.theme-dark select option {
-  background-color: #2b2d30;
-  color: #dfdfe3;
-}
-
 input:focus,
-select:focus,
 textarea:focus {
   border-color: rgba(56, 116, 203, 0.65);
   box-shadow: 0 0 0 3px rgba(56, 116, 203, 0.14);
-}
-
-input[type='checkbox'] {
-  width: auto;
-  accent-color: #579df5;
-  cursor: pointer;
 }
 
 input[type='number'] {
@@ -405,22 +382,6 @@ button:disabled {
   margin-top: 12px;
 }
 
-/* 跨组件共用：危险文字按钮 与 勾选标签（列表/详情的删除、勾选、选项都在用） */
-.danger-text {
-  background: transparent;
-  color: #c74541;
-  padding: 2px 6px;
-  font-weight: 500;
-}
-
-.check-label {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  cursor: pointer;
-  white-space: nowrap;
-}
-
 /* 隐藏原生数字输入框的步进按钮（手动输入更快更直观） */
 input[type='number']::-webkit-outer-spin-button,
 input[type='number']::-webkit-inner-spin-button {
@@ -502,15 +463,10 @@ input[type='number'] {
 }
 
 .theme-dark input,
-.theme-dark select,
 .theme-dark textarea {
   color: #dfdfe3;
   background-color: #1e1f22;
   border-color: rgba(255, 255, 255, 0.12);
-}
-
-.theme-dark select {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239da0a8' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
 }
 
 input::placeholder,
@@ -524,7 +480,6 @@ textarea::placeholder {
 }
 
 .theme-dark input:focus,
-.theme-dark select:focus,
 .theme-dark textarea:focus {
   background-color: #222427;
   border-color: rgba(87, 157, 245, 0.6);
@@ -551,10 +506,6 @@ textarea::placeholder {
   background: rgba(255, 255, 255, 0.03);
   border-color: rgba(255, 255, 255, 0.18);
   color: #9da0a8;
-}
-
-.theme-dark .danger-text {
-  color: #e8807c;
 }
 
 /* ============ 窄窗口降级 ============ */

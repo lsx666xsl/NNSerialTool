@@ -2,8 +2,8 @@
 name = "serialtool"
 version = "0.6.2"
 default-run = "serialtool"
-description = "A Tauri App"
-authors = ["you"]
+description = "NNSerialTool——串口/TCP/UDP 多会话调试与联调工具"
+authors = ["NNSerialTool"]
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -33,3 +33,5 @@ serde = "1.0.228"
 serde_json = "1" # generate_context! 宏解析 tauri.conf.json plugins 配置所需
 if-addrs = "0.13"
 font-kit = "0.14" # 枚举 Windows 已安装字体（DirectWrite），设置字体下拉数据源
+# nn CLI 检查更新（check-update）：阻塞 HTTP + rustls（默认 TLS 后端，跨平台无需系统 OpenSSL）
+reqwest = { version = "0.13", features = ["blocking"] }

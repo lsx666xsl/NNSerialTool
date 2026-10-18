@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onUnmounted, ref, watch } from 'vue';
+import { nextTick, onActivated, onUnmounted, ref, watch } from 'vue';
 import SelfSelect from './SelfSelect.vue';
 import {
   busDirectionFilter,
@@ -35,6 +35,28 @@ watch(
 onUnmounted(() => {
   writeStorage('st-bus-autoscroll', busAutoScroll.value);
 });
+
+// 从 keep-alive 缓存切回视图时补滚：缓存期间新消息仍在入缓冲（不在 DOM 里滚动），
+// 若自动滚动开启则一次性滚到最新位置，避免切回后停在旧位置
+onActivated(async () => {
+  if (!busAutoScroll.value) return;
+  await nextTick();
+  const el = listEl.value;
+  if (el) el.scrollTop = el.scrollHeight;
+});
+
+// 会话列表变化：当前连接过滤指向的会话被删除后，下拉值悬空（永远筛不出消息），
+// 自动复位为"全部"，避免用户面对空白时间线却看不出原因。
+// 只用 id 串做浅层监听：会话对象在收发数据时持续变更，深监听会带来无谓开销。
+watch(
+  () => sessions.value.map((session) => session.id).join('\u0000'),
+  () => {
+    if (busSessionFilter.value === 'all') return;
+    if (!sessions.value.some((session) => session.id === busSessionFilter.value)) {
+      busSessionFilter.value = 'all';
+    }
+  }
+);
 </script>
 
 <template>
@@ -219,8 +241,16 @@ onUnmounted(() => {
 }
 
 /* 深色主题 */
-.theme-dark .filter-bar label {
+/* 过滤标签提亮（此前误写成 .filter-bar label：组件里没有 label 元素，深色下标签发暗） */
+.theme-dark .filter-label {
   color: #9da0a8;
+}
+
+/* 深色主题：自动滚动开启态（浅色主题的蓝底蓝字在深色下对比不足） */
+.theme-dark .bus-autoscroll.on {
+  background: rgba(87, 157, 245, 0.16);
+  color: #8fbdf7;
+  box-shadow: inset 0 0 0 1px rgba(87, 157, 245, 0.4);
 }
 
 .theme-dark .message-list {

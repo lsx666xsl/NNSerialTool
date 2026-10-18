@@ -3,6 +3,10 @@ name: Release
 # 两种触发方式：
 #   1. 推送 v 开头的 git 标签（如 v0.5.1）→ 正式发布：四平台构建+签名+自动创建 Release 挂附件
 #   2. Actions 页面手动 Run workflow → 验证构建：只出包不上传，产物在运行页 Artifacts 下载
+#
+# 供应链说明（残余风险）：本文件用到的第三方 action 均保留 major tag（如 @v4 / @v0），
+# 没有固定到 commit SHA——本仓库维护环境离线，无法核验 SHA，绝不伪造。
+# 联网环境应尽快按 TODO 注释逐个改为 SHA 固定版本，降低 tag 被移动/仓库被接管的供应链风险。
 on:
   push:
     tags: ['v*']
@@ -10,6 +14,11 @@ on:
 
 permissions:
   contents: write   # 允许自动创建 Release
+
+# 同一 ref 的发布流程串行执行；不取消进行中的发布（避免半成品 Release）
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -30,12 +39,32 @@ jobs:
             rust-target: x86_64-apple-darwin      # Intel Mac
             args: '--target x86_64-apple-darwin'
     runs-on: ${{ matrix.platform }}
-    env:
-      # 更新签名私钥（配置在仓库 Secrets 里）；私钥为空密码，Secret 缺省时解析为空串即可
-      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
     steps:
+      # TODO: pin to commit SHA（actions/checkout@v4）
       - uses: actions/checkout@v4
+
+      # 版本一致性守卫（fail fast）：
+      #   - tag 触发时 tag 必须等于 v<tauri.conf.json version>（否则会产出与 tag 不符的安装包）
+      #   - package.json / tauri.conf.json / Cargo.toml 三处版本必须一致
+      - name: Verify version consistency
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAURI_VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          PKG_VER=$(node -p "require('./package.json').version")
+          CARGO_VER=$(awk -F'"' '/^version = "/ { print $2; exit }' src-tauri/Cargo.toml)
+          echo "tauri.conf.json=$TAURI_VER  package.json=$PKG_VER  Cargo.toml=$CARGO_VER"
+          if [ "$TAURI_VER" != "$PKG_VER" ] || [ "$TAURI_VER" != "$CARGO_VER" ]; then
+            echo "::error::版本不一致：tauri.conf.json=$TAURI_VER package.json=$PKG_VER Cargo.toml=$CARGO_VER"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            if [ "v$TAURI_VER" != "$GITHUB_REF_NAME" ]; then
+              echo "::error::tag $GITHUB_REF_NAME 与 tauri.conf.json 版本 v$TAURI_VER 不一致"
+              exit 1
+            fi
+            echo "tag 与版本一致：$GITHUB_REF_NAME"
+          fi
 
       - name: Install Linux system dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -43,16 +72,19 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev librsvg2-dev patchelf libudev-dev libfontconfig1-dev pkg-config build-essential file
 
+      # TODO: pin to commit SHA（actions/setup-node@v4）
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22   # 与 package.json engines（>=22）及测试脚本依赖的全局 WebSocket 对齐
           cache: npm
 
+      # TODO: pin to commit SHA（dtolnay/rust-toolchain@stable）
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.rust-target }}
 
       # 缓存 Rust 编译产物，第二次构建起明显提速
+      # TODO: pin to commit SHA（swatinem/rust-cache@v2）
       - uses: swatinem/rust-cache@v2
         with:
           workspaces: ./src-tauri -> target
@@ -60,26 +92,63 @@ jobs:
       - run: npm ci
 
       # ---- nn CLI 二进制作为资源随主程序打包，必须先于 tauri build 构建 ----
-      # 鸡生蛋问题：tauri 的 build.rs 在编译期校验资源存在，而 nn.exe 正是本次要构建的——
-      # 先放占位资源通过校验，nn 链接完成后自动覆盖为真实二进制；
-      # macOS 交叉编译产物在 target/<triple>/release/，复制到资源路径 src-tauri/target/release/nn
+      # 鸡生蛋问题：tauri 的 build.rs 在编译期校验资源存在，而 nn 正是本次要构建的——
+      # 先放占位资源通过校验；nn 编译到独立 CARGO_TARGET_DIR（产物路径可预测、不污染
+      # 主 target），构建后 cp -f 覆盖占位，并断言产物存在、>100KB，Windows 还校验 MZ 头，
+      # 避免 0 字节/占位文件被打进安装包（曾出现"更新后 nn 是空文件"的问题）。
       - name: Build nn CLI
         shell: bash
+        env:
+          RUST_TARGET: ${{ matrix.rust-target }}
+          CARGO_ARGS: ${{ matrix.args }}
         run: |
+          set -euo pipefail
           mkdir -p src-tauri/target/release
-          touch src-tauri/target/release/nn src-tauri/target/release/nn.exe
-          cargo build --release --bin nn --manifest-path src-tauri/Cargo.toml ${{ matrix.args }}
-          if [ -n "${{ matrix.rust-target }}" ] && [ -f "src-tauri/target/${{ matrix.rust-target }}/release/nn" ]; then
-            cp "src-tauri/target/${{ matrix.rust-target }}/release/nn" src-tauri/target/release/nn
+          : > src-tauri/target/release/nn
+          : > src-tauri/target/release/nn.exe
+          export CARGO_TARGET_DIR=src-tauri/target/nn-build
+          cargo build --release --bin nn --manifest-path src-tauri/Cargo.toml --locked $CARGO_ARGS
+          if [ -n "$RUST_TARGET" ]; then
+            NN_BIN="$CARGO_TARGET_DIR/$RUST_TARGET/release/nn"
+          else
+            NN_BIN="$CARGO_TARGET_DIR/release/nn"
           fi
+          if [ -f "$NN_BIN.exe" ]; then
+            NN_BIN="$NN_BIN.exe"
+          fi
+          if [ ! -f "$NN_BIN" ]; then
+            echo "::error::nn 构建产物不存在：$NN_BIN"
+            find "$CARGO_TARGET_DIR" -type f -name 'nn*' || true
+            exit 1
+          fi
+          SIZE=$(wc -c < "$NN_BIN")
+          echo "nn 产物：$NN_BIN（$SIZE 字节）"
+          if [ "$SIZE" -lt 102400 ]; then
+            echo "::error::nn 产物只有 $SIZE 字节（<100KB），疑似 0 字节/占位文件"
+            exit 1
+          fi
+          if [ "${RUNNER_OS:-}" = "Windows" ]; then
+            # 只需读 2 字节：PE 文件以 ASCII "MZ" 开头；用 head 而非 od，Git Bash 兼容性更好
+            MAGIC=$(head -c 2 "$NN_BIN")
+            if [ "$MAGIC" != "MZ" ]; then
+              echo "::error::nn.exe 缺少 MZ 头（magic='$MAGIC'），不是有效 PE 文件"
+              exit 1
+            fi
+          fi
+          cp -f "$NN_BIN" src-tauri/target/release/nn
+          cp -f "$NN_BIN" src-tauri/target/release/nn.exe
 
       # ---- 正式发布（tag 触发）：构建 + 签名 + 创建/追加 Release，含各平台更新器 latest.json ----
       # 说明正文由 sync-release-notes 工作流统一写入（多行正文经 action 输入传递不可靠）
+      # 签名私钥只在本 step 可见：其它 step（npm ci / 构建 / 验证包）不需要，也不应拿到
+      # TODO: pin to commit SHA（tauri-apps/tauri-action@v0）
       - name: Build and release
         if: startsWith(github.ref, 'refs/tags/')
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
           releaseName: 'NNSerialTool v__VERSION__'
@@ -92,15 +161,19 @@ jobs:
 
 
       # ---- 验证构建（手动触发）：只出包，产物存到运行页 Artifacts ----
+      # 签名私钥按最小权限只给正式发布 step，这里拿不到密钥；createUpdaterArtifacts
+      # 必须显式关掉（tauri 在开启该选项且没有私钥时会直接报错），验证包也不需要更新器签名。
       - name: Verification build
         if: github.event_name == 'workflow_dispatch'
-        run: npm run tauri build -- ${{ matrix.args }}
+        run: npm run tauri build -- ${{ matrix.args }} --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
+      # TODO: pin to commit SHA（actions/upload-artifact@v4）
       - name: Upload verification artifacts
         if: github.event_name == 'workflow_dispatch'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.platform }}-installer
+          # 两个 macOS 矩阵项共享 platform 名，必须带 rust-target 区分，否则 v4 重名上传失败
+          name: ${{ matrix.platform }}-${{ matrix.rust-target || 'default' }}-installer
           path: |
             src-tauri/target/release/bundle/nsis/*.exe
             src-tauri/target/release/bundle/dmg/*.dmg
@@ -109,25 +182,48 @@ jobs:
             src-tauri/target/*/release/bundle/dmg/*.dmg
           if-no-files-found: ignore
 
-  # ---- 发布收尾：四个平台全部构建完成后，把 Release 里生成的 latest.json
+  # ---- 发布收尾：构建完成后，把 Release 里生成的 latest.json
   #      自动提交回仓库根，让 jsDelivr 备用更新源保持同步（替代手工同步）----
+  # 部分平台失败也尝试同步（tauri-action 成功创建 Release 即有 latest.json）；
+  # 被取消则不同步；Release 不存在（全部失败）时下面会安全跳过。
   sync-latest-json:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/')
+    if: always() && startsWith(github.ref, 'refs/tags/') && needs.build.result != 'cancelled'
     runs-on: ubuntu-latest
     steps:
+      # TODO: pin to commit SHA（actions/checkout@v4）
       - uses: actions/checkout@v4
         with:
           ref: master
 
+      - name: Check release exists
+        id: release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ github.ref_name }}" --repo "${{ github.repository }}" > /dev/null 2>&1; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Release ${{ github.ref_name }} 不存在（所有平台构建可能都失败），跳过 latest.json 同步"
+          fi
+
       - name: Download latest.json from release
+        id: download
+        if: steps.release.outputs.exists == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           rm -f latest.json   # 仓库根本就提交了上一版的 latest.json，gh download 拒绝覆盖已存在文件
-          gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" --pattern latest.json --output latest.json
+          if gh release download "${{ github.ref_name }}" --repo "${{ github.repository }}" --pattern latest.json --output latest.json; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Release 中没有 latest.json 附件（更新器产物可能缺失），跳过同步"
+          fi
 
       - name: Apply release notes (body + latest.json notes)
+        if: steps.download.outputs.ok == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -136,6 +232,7 @@ jobs:
           gh release upload "${{ github.ref_name }}" --repo "${{ github.repository }}" latest.json --clobber
 
       - name: Commit and push
+        if: steps.download.outputs.ok == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"

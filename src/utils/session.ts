@@ -9,15 +9,18 @@ export const netSessionName = (type: ConnectionType, net: NetConfig) => {
   return `UDP:${net.localPort || net.port}`;
 };
 
-// 会话卡片的连接路径描述（标题行下一行，格式 ip:port->ip:port）：
-// UDP/双方均已知的 TCP 客户端显示完整路径；TCP 服务端显示监听地址；串口显示端口与波特率
+// 会话卡片的连接路径描述（标题行下一行）：
+// - 串口：波特率；
+// - TCP Server：真实监听地址（host 为空时后端绑定 0.0.0.0，port 是监听端口）；
+// - TCP Client：只有目标地址（客户端不 bind 本地端口，不要再显示 localHost/localPort）；
+// - UDP：本地绑定 -> 目标（localPort=0 时后端沿用目标端口，与实际绑定一致）。
 export const sessionSubLabel = (session: ConnectionSession) => {
   if (session.type === 'serial') return `Baudrate: ${session.config.baudRate}bps`;
   const net = session.net;
   if (!net) return '';
-  const local = `${net.localHost || '0.0.0.0'}:${net.localPort || 0}`;
   const remote = `${net.host || '0.0.0.0'}:${net.port || 0}`;
-  if (session.type === 'udp') return `${local}->${remote}`;
-  if (session.type === 'tcp_client') return net.localPort > 0 ? `${local}->${remote}` : remote;
-  return local; // tcp_server：监听地址
+  if (session.type === 'tcp_client') return remote;
+  if (session.type === 'tcp_server') return `${net.host || '0.0.0.0'}:${net.port || 0}`;
+  const local = `${net.localHost || '0.0.0.0'}:${net.localPort > 0 ? net.localPort : net.port || 0}`;
+  return `${local}->${remote}`;
 };

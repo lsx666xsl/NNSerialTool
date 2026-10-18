@@ -5,6 +5,7 @@ import {
   activeSessionId,
   closeConnection,
   connectedCount,
+  isSessionBusy,
   notify,
   openConnection,
   removeSession,
@@ -14,10 +15,11 @@ import {
   toggleSplitSession,
 } from '../stores/appStore';
 import { sessionSubLabel } from '../utils/session';
+import type { ConnectionSession } from '../types';
 
 // 连接列表：所有会话的卡片，四行布局：
 // ① 状态点（即连接开关）+ 名称 + 删除 X（始终显示）
-// ② 连接路径（ip:port->ip:port / 波特率矩形框可实时编辑）
+// ② 连接路径（ip:port->ip:port；串口为波特率矩形框，可实时编辑）
 // ③ 收发字节统计兼显示开关（点击 Tx/Rx 矩形按钮切换方向数据是否显示）
 // ④ 开关行：分屏 / 总览 / 时间戳 + 消息计数
 // 标题行右侧 = 一键打开/关闭列表中的全部连接。
@@ -25,8 +27,12 @@ import { sessionSubLabel } from '../utils/session';
 // 全部已连接时按钮变为"全部关闭"，否则为"全部打开"
 const allConnected = computed(() => sessions.value.length > 0 && connectedCount.value === sessions.value.length);
 
+// 是否有会话正在打开/关闭（后端往返未回）：期间禁用一键开关，避免并发重复触发
+const anyBusy = computed(() => sessions.value.some((session) => isSessionBusy(session.id)));
+
 const toggleAllSessions = () => {
   for (const session of sessions.value) {
+    if (isSessionBusy(session.id)) continue; // 正在打开/关闭的会话不重复触发
     if (allConnected.value) {
       if (session.status === 'connected') closeConnection(session);
     } else if (session.status === 'closed') {
@@ -35,24 +41,52 @@ const toggleAllSessions = () => {
   }
 };
 
+// 波特率合法范围：正整数，1 ~ 10,000,000（与新建会话表单的校验口径一致）
+const BAUD_RATE_MIN = 1;
+const BAUD_RATE_MAX = 10_000_000;
+
 // 行2 实时编辑：修改串口波特率（连接中经 serial_set_baudrate 实时生效，无需重连）
-const onBaudChange = async (session: import('../types').ConnectionSession, e: Event) => {
-  const val = Number((e.target as HTMLInputElement).value);
-  if (!val || val <= 0 || val === session.config.baudRate) return;
-  session.config.baudRate = val;
+const onBaudChange = async (session: ConnectionSession, e: Event) => {
+  const input = e.target as HTMLInputElement;
+  const val = Number(input.value);
+  // 严格校验：非法输入提示并回显旧值（不写入配置）
+  if (!Number.isInteger(val) || val < BAUD_RATE_MIN || val > BAUD_RATE_MAX) {
+    notify(`波特率必须是 ${BAUD_RATE_MIN} ~ ${BAUD_RATE_MAX} 之间的整数`);
+    input.value = String(session.config.baudRate);
+    return;
+  }
+  if (val === session.config.baudRate) {
+    input.value = String(val);
+    return;
+  }
   if (session.status !== 'connected') {
+    // 未连接：只更新配置，打开连接时按新波特率生效
+    session.config.baudRate = val;
     notify(`波特率已更新为 ${val}bps（打开连接后生效）`);
     return;
   }
+  // 连接中：先请求后端实时改波特率，成功后才写入配置——
+  // 失败时配置保持旧值（不污染已连接会话的参数），输入框回显旧值
   try {
     const msg = await invoke<string>('serial_set_baudrate', { port: session.config.port, baudRate: val });
+    session.config.baudRate = val;
     notify(msg);
   } catch (err) {
     notify(`修改波特率失败: ${err}`);
+    input.value = String(session.config.baudRate);
   }
 };
 
-
+// 卡片异常提示：只在"已关闭"状态下展示失败/断开原因（常驻可见），
+// 正常的"已创建，等待打开/已关闭"等状态提示不占卡片空间。
+const showStatusError = (session: ConnectionSession) => {
+  if (session.status !== 'closed') return false;
+  const msg = session.statusMsg ?? '';
+  if (!msg) return false;
+  if (msg.startsWith('打开失败') || msg.startsWith('关闭失败') || msg.startsWith('自动发送已停止')) return true;
+  // 断开原因：Rust 读线程上报文案为"串口 COMx 已断开""连接已断开（…）"，按包含匹配
+  return msg.includes('已断开');
+};
 </script>
 
 <template>
@@ -62,7 +96,7 @@ const onBaudChange = async (session: import('../types').ConnectionSession, e: Ev
       <span class="list-side">
         <button
           class="list-toggle"
-          :disabled="sessions.length === 0"
+          :disabled="sessions.length === 0 || anyBusy"
           :title="allConnected ? '关闭列表中的全部连接' : '打开列表中的全部连接'"
           @click.stop="toggleAllSessions"
         >
@@ -87,8 +121,15 @@ const onBaudChange = async (session: import('../types').ConnectionSession, e: Ev
         <div class="session-main">
           <button
             class="status-dot"
-            :class="session.status"
-            :title="session.status === 'connected' ? '点击关闭连接' : '点击打开连接'"
+            :class="[session.status, { busy: isSessionBusy(session.id) }]"
+            :disabled="isSessionBusy(session.id)"
+            :title="
+              isSessionBusy(session.id)
+                ? '连接状态切换中…'
+                : session.status === 'connected'
+                  ? '点击关闭连接'
+                  : '点击打开连接'
+            "
             @click.stop="toggleConnection(session)"
           ></button>
           <strong class="session-name">{{ session.name }}</strong>
@@ -100,7 +141,7 @@ const onBaudChange = async (session: import('../types').ConnectionSession, e: Ev
           </button>
         </div>
 
-        <!-- 行2：连接路径（可实时编辑）：串口为波特率矩形框；网络为远程端口矩形框 -->
+        <!-- 行2：连接路径（串口为可实时编辑的波特率框；网络为只读地址/端口文本） -->
         <p class="session-sub">
           <template v-if="session.type === 'serial'">
             <span class="path-label">Baudrate:</span>
@@ -118,7 +159,12 @@ const onBaudChange = async (session: import('../types').ConnectionSession, e: Ev
           <template v-else>{{ sessionSubLabel(session) }}</template>
         </p>
 
-        <!-- 行3：收发字节统计，按钮即开关——点击切换 TX/RX 数据是否显示（清空消息不清零计数） -->
+        <!-- 行2 下方：异常/断开原因常驻小字（仅已关闭且状态为失败/断开时展示） -->
+        <p v-if="showStatusError(session)" class="session-status-err" :title="session.statusMsg">
+          {{ session.statusMsg }}
+        </p>
+
+        <!-- 行3：收发字节统计，按钮即开关——点击切换 TX/RX 数据是否显示（点"清空"会同时归零统计） -->
         <div class="byte-line">
           <button
             class="byte-toggle tx"
@@ -337,6 +383,15 @@ const onBaudChange = async (session: import('../types').ConnectionSession, e: Ev
   color: #3b414b;
 }
 
+/* 行2 下方：异常/断开原因小字（失败常驻展示，正常状态不出现） */
+.session-status-err {
+  margin: 4px 0 0;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #c74541;
+  word-break: break-all;
+}
+
 /* 状态点即连接开关：hover 放大提示可点击 */
 .status-dot {
   width: 12px;
@@ -350,6 +405,14 @@ const onBaudChange = async (session: import('../types').ConnectionSession, e: Ev
 
 .status-dot:hover {
   transform: scale(1.3);
+}
+
+/* 打开/关闭请求往返中：置灰且不可点击（避免重复触发），不再放大 */
+.status-dot.busy,
+.status-dot:disabled {
+  cursor: wait;
+  transform: none;
+  opacity: 0.55;
 }
 
 .status-dot.connected {
@@ -458,6 +521,10 @@ const onBaudChange = async (session: import('../types').ConnectionSession, e: Ev
 .theme-dark .path-label,
 .theme-dark .path-unit {
   color: #c6c9cf;
+}
+
+.theme-dark .session-status-err {
+  color: #e8807c;
 }
 
 .theme-dark .path-edit {

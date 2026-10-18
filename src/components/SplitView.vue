@@ -7,8 +7,11 @@ import {
   cycleNewline,
   exportSessionLog,
   filterHexInput,
+  loopSessionId,
+  loopTargetName,
   newlineLabel,
   openConnection,
+  requestLoopFor,
   sendData,
   sendSettings,
   splitSessions,
@@ -25,6 +28,11 @@ const toggleConnection = (session: import('../types').ConnectionSession) => {
   if (session.status === 'connected') closeConnection(session);
   else openConnection(session);
 };
+
+// 本面板的自动发送状态：只有 store 锁定的目标就是本会话时才亮起。
+// 自动发送是全局单例（后端只有一条定时线程），因此各面板互斥：开启本面板会接管目标。
+const isLooping = (session: import('../types').ConnectionSession) =>
+  loopSessionId.value === session.id && sendSettings.value.loopSend;
 </script>
 
 <template>
@@ -71,17 +79,22 @@ const toggleConnection = (session: import('../types').ConnectionSession) => {
           >
             自动换行: {{ newlineLabel }}
           </button>
-          <!-- 自动发送开关：开启后旁边显示可键入的间隔输入 -->
+          <!-- 自动发送开关：每面板独立锁定本会话（requestLoopFor），不再直接改全局 loopSend；开启后旁边显示间隔输入 -->
           <button
             class="mini-toggle"
-            :class="{ on: sendSettings.loopSend }"
-            title="按设定的间隔自动发送本面板发送框中的内容"
-            @click="sendSettings.loopSend = !sendSettings.loopSend"
+            :class="{ on: isLooping(session) }"
+            :disabled="session.status !== 'connected'"
+            :title="
+              isLooping(session)
+                ? `自动发送中（发往 ${loopTargetName || session.name}），点击停止`
+                : '按设定的间隔自动发送本面板发送框中的内容（锁定本会话）'
+            "
+            @click="requestLoopFor(session)"
           >
             自动发送
           </button>
           <input
-            v-if="sendSettings.loopSend"
+            v-if="isLooping(session)"
             class="split-interval"
             :value="sendSettings.loopInterval"
             type="number"
