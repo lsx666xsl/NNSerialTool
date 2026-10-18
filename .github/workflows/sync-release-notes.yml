@@ -132,7 +132,7 @@ jobs:
           TAG='${{ steps.tag.outputs.tag }}'
           LATEST_TAG=$(gh api "repos/${{ github.repository }}/releases/latest" --jq .tag_name)
           if [ "$LATEST_TAG" != "$TAG" ]; then
-            echo "TAG=$TAG 不是当前 latest release（$LATEST_TAG），不回写仓库 latest.json"
+            echo "TAG=$TAG 不是当前 latest release（${LATEST_TAG}），不回写仓库 latest.json"
             exit 0
           fi
           # latest.json 由上一步从 Release 下载并编辑后复制到工作区（保持原始文件名）
@@ -142,6 +142,6 @@ jobs:
             echo "latest.json 无变化，跳过提交"
           else
             git add latest.json
-            git commit -m "chore: latest.json notes 同步（$TAG）"
+            git commit -m "chore: latest.json notes 同步（${TAG}）"
             git push origin master
           fi
