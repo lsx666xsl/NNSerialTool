@@ -1,0 +1,122 @@
+# 补传 macOS 安装包到指定历史 Release（例如某次 CI 的 macOS job 失败、Release 缺 dmg）。
+#
+# 用法：Actions 页面手动 Run workflow，输入目标 tag（如 v0.6.3）。
+#   - 从该 tag 的源码构建 aarch64 / x86_64 两个 dmg（不带 updater 产物、不签名）；
+#   - 构建完成后仅把 dmg 追加到同名 Release（--clobber），不改 latest.json、不改 Release 说明。
+# 适用前提：tag 对应的 tauri.conf.json version 与 tag 一致。
+name: Rebuild macOS artifacts
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '目标 Release tag（必须已存在，例如 v0.6.3）'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rebuild-macos-${{ inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  build-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: aarch64-apple-darwin
+            arch: aarch64
+          - target: x86_64-apple-darwin
+            arch: x64
+    runs-on: macos-latest
+    steps:
+      # TODO: pin to commit SHA（actions/checkout@v4）
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag }}
+
+      - name: Verify tag matches version
+        shell: bash
+        run: |
+          set -euo pipefail
+          CONF_VER=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          echo "tag=${{ inputs.tag }} conf=$CONF_VER"
+          if [ "v$CONF_VER" != "${{ inputs.tag }}" ]; then
+            echo "::error::tag 与 tauri.conf.json 版本不一致"
+            exit 1
+          fi
+
+      # TODO: pin to commit SHA（actions/setup-node@v4）
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # TODO: pin to commit SHA（dtolnay/rust-toolchain@stable）
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      # TODO: pin to commit SHA（swatinem/rust-cache@v2）
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+
+      - run: npm ci
+
+      # 与 release.yml 相同：先构建 nn 资源（脚本里变量后接中文必须用 ${VAR}，
+      # 否则 macOS bash 3.2 会把全角括号并进变量名）
+      - name: Build nn CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p src-tauri/target/release
+          : > src-tauri/target/release/nn
+          : > src-tauri/target/release/nn.exe
+          export CARGO_TARGET_DIR=src-tauri/target/nn-build
+          cargo build --release --bin nn --manifest-path src-tauri/Cargo.toml --locked --target ${{ matrix.target }}
+          NN_BIN="$CARGO_TARGET_DIR/${{ matrix.target }}/release/nn"
+          if [ ! -f "$NN_BIN" ]; then
+            echo "::error::nn 构建产物不存在：${NN_BIN}"
+            exit 1
+          fi
+          SIZE=$(wc -c < "$NN_BIN")
+          echo "nn 产物：${NN_BIN}（${SIZE} 字节）"
+          if [ "$SIZE" -lt 102400 ]; then
+            echo "::error::nn 产物只有 ${SIZE} 字节"
+            exit 1
+          fi
+          cp -f "$NN_BIN" src-tauri/target/release/nn
+          cp -f "$NN_BIN" src-tauri/target/release/nn.exe
+
+      # 只出 dmg，不生成 updater 归档/签名（补传历史资产用；签名私钥不在此工作流）
+      - name: Build macOS bundle
+        run: npm run tauri build -- --target ${{ matrix.target }} --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      # TODO: pin to commit SHA（actions/upload-artifact@v4）
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.arch }}
+          path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+
+  upload:
+    needs: build-macos
+    runs-on: ubuntu-latest
+    steps:
+      # TODO: pin to commit SHA（actions/download-artifact@v4）
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Upload dmg to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          ls -l dist
+          gh release upload "${{ inputs.tag }}" dist/*.dmg --repo "${{ github.repository }}" --clobber
