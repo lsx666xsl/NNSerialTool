@@ -426,6 +426,9 @@ fn cmd_version(args: &[String]) -> i32 {
 
 // 拉取 latest.json（GitHub Release 优先，jsDelivr 备源）
 fn fetch_latest_json() -> Result<(String, serde_json::Value), String> {
+    // reqwest 使用 rustls-no-provider：必须安装进程级 CryptoProvider。
+    // 主程序由 updater 插件负责安装；nn 是独立二进制，需要自己装（重复安装返回 Err 可忽略）。
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(10))
         .user_agent(format!("nn/{}", NN_VERSION))
@@ -520,7 +523,8 @@ fn cmd_check_update(args: &[String]) -> i32 {
             }
         }
     } else {
-        println!("当前已是最新版本（v{}）", NN_VERSION);
+        // 本地版本可能已高于线上（开发/自编译场景）：把两个版本都打出来，避免误以为线上已是 0.6.4
+        println!("当前已是最新版本（本地 v{}，线上 v{}）", NN_VERSION, latest);
     }
     if has_update {
         EXIT_UPDATE
