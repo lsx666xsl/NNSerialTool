@@ -1,27 +1,27 @@
 {
-  "version": "0.6.3",
-  "notes": "【新功能】\n- nn 命令行新增 version / check-update 命令（支持 --json；退出码 0 已最新 / 10 有更新 / 4 检查失败）\n【修复】\n- 修复插件安装与文件读写安全校验问题\n- 修复 TCP 断开后连接/端口未真正释放、重连异常\n- 修复自动发送目标错乱与 HEX 模式发送内容错误\n- 修复转发数据被追加换行、中文跨包乱码、消息重复显示\n- 修复更新检测、插件市场、深色主题、安装/卸载脚本等若干边界问题\n\n---\n由 NNSerialTool 发布流水线自动维护\n",
-  "pub_date": "2026-10-18T11:59:35.536Z",
+  "version": "0.6.4",
+  "notes": "【新功能】\n- nn 命令行新增 version / check-update 命令（支持 --json；退出码 0 已最新 / 10 有更新 / 4 检查失败）\n【修复】\n- 修复 macOS 构建失败导致 v0.6.3 缺少 macOS 安装包的问题（nn 的 TLS 依赖改为与主程序一致的 rustls/ring）\n- 修复插件安装与文件读写安全校验问题\n- 修复 TCP 断开后连接/端口未真正释放、重连异常\n- 修复自动发送目标错乱与 HEX 模式发送内容错误\n- 修复转发数据被追加换行、中文跨包乱码、消息重复显示\n- 修复更新检测、插件市场、深色主题、安装/卸载脚本等若干边界问题\n\n---\n由 NNSerialTool 发布流水线自动维护\n",
+  "pub_date": "2026-10-18T12:25:04.071Z",
   "platforms": {
-    "windows-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKythWE8zT3lVeERjYnhucGJ5MHJjamo0RitWQlpRTUpSbGEwNGZJSUhhRzZiQXRWQmlSQWc2dGdnY283UmdTekpvZWN6VitTOUNNaGVCNGYrcHkzWXdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMzI0NzcxCWZpbGU6Tk5TZXJpYWxUb29sXzAuNi4zX3g2NC1zZXR1cC5leGUKS1pJQXl2QkZRbmJvbVFTL1p6d1ZqN25WUW1xRGhwS2piNFdKelF2UGlvQVZJZUhsRGlvRm9wRzRJTlhUb3lqakpDYU5CWjV1Q3VQMkwzYnRYUEdoQlE9PQo=",
-      "url": "https://github.com/lsx666xsl/NNSerialTool/releases/download/v0.6.3/NNSerialTool_0.6.3_x64-setup.exe"
-    },
-    "windows-x86_64-nsis": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKythWE8zT3lVeERjYnhucGJ5MHJjamo0RitWQlpRTUpSbGEwNGZJSUhhRzZiQXRWQmlSQWc2dGdnY283UmdTekpvZWN6VitTOUNNaGVCNGYrcHkzWXdzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMzI0NzcxCWZpbGU6Tk5TZXJpYWxUb29sXzAuNi4zX3g2NC1zZXR1cC5leGUKS1pJQXl2QkZRbmJvbVFTL1p6d1ZqN25WUW1xRGhwS2piNFdKelF2UGlvQVZJZUhsRGlvRm9wRzRJTlhUb3lqakpDYU5CWjV1Q3VQMkwzYnRYUEdoQlE9PQo=",
-      "url": "https://github.com/lsx666xsl/NNSerialTool/releases/download/v0.6.3/NNSerialTool_0.6.3_x64-setup.exe"
-    },
     "linux-x86_64": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKzRob0pFWnV5VkR0ZXBDb05XTWkzdHZDMzlGY2lwamhWVVJYZnBnZzA0c2QvQXczRnJ0ZDNVZitob2dZT0RBcE5FOFZxeFBwakF1NWN6ZEN6TVMrZ3dZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMzI0NzY2CWZpbGU6Tk5TZXJpYWxUb29sXzAuNi4zX2FtZDY0LkFwcEltYWdlCkE3d25FN0JyS1Rad3RGUzYrSG4wa05tdmR0WGd1dlQxSWdyMjA5NlFFSDZ4YThYd1A0NHNLbEtJNk8yQVg3eTRSbHRsaEozYzF2bEt5bzJYSGNYM0JRPT0K",
-      "url": "https://github.com/lsx666xsl/NNSerialTool/releases/download/v0.6.3/NNSerialTool_0.6.3_amd64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKzB5aVZCcGo0dHpjcVFvZDVnbHE1REdWTzZFQnl2TnNRSWdkOGVMbmdoZ29pdzdPT1RVNFprL3dsNEZwREZHTytkdzFJK01SZUdFZmNZeTNpWUduN1FZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMzI2MTQ3CWZpbGU6Tk5TZXJpYWxUb29sXzAuNi40X2FtZDY0LkFwcEltYWdlCjFOd2pWa2s3ZXpPUmtFYjdxUzlTRTZkZlRhUVpTaGpVcEtLUFBXSjY2d0ZGTG1wdmVBYWtkUTFpc3g0RWxva2dhaFJaNlhFa3VqUytGVDNEdzZRdkJRPT0K",
+      "url": "https://github.com/lsx666xsl/NNSerialTool/releases/download/v0.6.4/NNSerialTool_0.6.4_amd64.AppImage"
     },
     "linux-x86_64-appimage": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKzRob0pFWnV5VkR0ZXBDb05XTWkzdHZDMzlGY2lwamhWVVJYZnBnZzA0c2QvQXczRnJ0ZDNVZitob2dZT0RBcE5FOFZxeFBwakF1NWN6ZEN6TVMrZ3dZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMzI0NzY2CWZpbGU6Tk5TZXJpYWxUb29sXzAuNi4zX2FtZDY0LkFwcEltYWdlCkE3d25FN0JyS1Rad3RGUzYrSG4wa05tdmR0WGd1dlQxSWdyMjA5NlFFSDZ4YThYd1A0NHNLbEtJNk8yQVg3eTRSbHRsaEozYzF2bEt5bzJYSGNYM0JRPT0K",
-      "url": "https://github.com/lsx666xsl/NNSerialTool/releases/download/v0.6.3/NNSerialTool_0.6.3_amd64.AppImage"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKzB5aVZCcGo0dHpjcVFvZDVnbHE1REdWTzZFQnl2TnNRSWdkOGVMbmdoZ29pdzdPT1RVNFprL3dsNEZwREZHTytkdzFJK01SZUdFZmNZeTNpWUduN1FZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMzI2MTQ3CWZpbGU6Tk5TZXJpYWxUb29sXzAuNi40X2FtZDY0LkFwcEltYWdlCjFOd2pWa2s3ZXpPUmtFYjdxUzlTRTZkZlRhUVpTaGpVcEtLUFBXSjY2d0ZGTG1wdmVBYWtkUTFpc3g0RWxva2dhaFJaNlhFa3VqUytGVDNEdzZRdkJRPT0K",
+      "url": "https://github.com/lsx666xsl/NNSerialTool/releases/download/v0.6.4/NNSerialTool_0.6.4_amd64.AppImage"
     },
     "linux-x86_64-deb": {
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiK3pVdTN5TXRMTW1pdUVnWExWTitONmlwSHllU1hKcDhwZnpjTWVaQitsVjJYMVNsSVVDRjVaTDhrV09pUXd6RTA2OWRwclI1bTRSYUNKQ0pNZGdWNGdRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMzI0NzY2CWZpbGU6Tk5TZXJpYWxUb29sXzAuNi4zX2FtZDY0LmRlYgpEZU5HNzlXMHpjYjhpVEhDRXdSbUYyRFN2d3E5N2MwV3hDQ2l1UlJsaHgvakhPbjhFSG1zUnBnTmxDeTE4NHVrOWJUVExweHlSakNaYVAvQWdFWllDdz09Cg==",
-      "url": "https://github.com/lsx666xsl/NNSerialTool/releases/download/v0.6.3/NNSerialTool_0.6.3_amd64.deb"
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKzF0NVN2ZEs0VWU3dWxyNGVpMjJtRzFGcFVEVm5IZk9MRjhoWDZPZjdERVUybzZlWDE5UUVxNlFiWTdrNFJOUkMvdUcwZE5rLzNhYmRYZDlzK3RKaUFzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMzI2MTQ3CWZpbGU6Tk5TZXJpYWxUb29sXzAuNi40X2FtZDY0LmRlYgp1b09KTXN4YnRlK1A4MytyTmNkU3A5OWo0LzN5TVpubEVkejJCOHRXRTNKUTloalJlcG9OOG9ld0t1di85bkpSdnlQRS9XMDlybEdFMWpkcXpWbkhCQT09Cg==",
+      "url": "https://github.com/lsx666xsl/NNSerialTool/releases/download/v0.6.4/NNSerialTool_0.6.4_amd64.deb"
+    },
+    "windows-x86_64": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKzRKbE5zTDNJOHNNWGcyREVQalFKTHREWStGaE9WZXNkSm0xTGNsT0xVZkxSZkl6WWVPU2M0WjBJa1RhNi9zT0Q5dDd3bWhmN3hkKzBZa09iMFJWSndzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMzI2MzAyCWZpbGU6Tk5TZXJpYWxUb29sXzAuNi40X3g2NC1zZXR1cC5leGUKUmJsQ1Y2OVE1dlRjYjR2WmZ0MmlnWHp0dlVveDMySWJpTVB5cHV2MnU0RWllK1B0c1QwZWdDa2crMUcvNEViemhXTGtJV0xCWTFUdCtlV2RWbHFHQ3c9PQo=",
+      "url": "https://github.com/lsx666xsl/NNSerialTool/releases/download/v0.6.4/NNSerialTool_0.6.4_x64-setup.exe"
+    },
+    "windows-x86_64-nsis": {
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRU29sdTNKbXJiKzRKbE5zTDNJOHNNWGcyREVQalFKTHREWStGaE9WZXNkSm0xTGNsT0xVZkxSZkl6WWVPU2M0WjBJa1RhNi9zT0Q5dDd3bWhmN3hkKzBZa09iMFJWSndzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzkyMzI2MzAyCWZpbGU6Tk5TZXJpYWxUb29sXzAuNi40X3g2NC1zZXR1cC5leGUKUmJsQ1Y2OVE1dlRjYjR2WmZ0MmlnWHp0dlVveDMySWJpTVB5cHV2MnU0RWllK1B0c1QwZWdDa2crMUcvNEViemhXTGtJV0xCWTFUdCtlV2RWbHFHQ3c9PQo=",
+      "url": "https://github.com/lsx666xsl/NNSerialTool/releases/download/v0.6.4/NNSerialTool_0.6.4_x64-setup.exe"
     }
   }
 }
