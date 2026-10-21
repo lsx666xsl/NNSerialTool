@@ -72,8 +72,13 @@ watch(themeMode, (mode) => writeStorage('st-theme', mode));
 watch(appliedTheme, (t) => setTheme(t), { immediate: true });
 
 // ---------- 显示与日志偏好 ----------
-export const showTimestamp = ref(readStorageChecked<boolean>('st-timestamp', true, isBoolean));
-watch(showTimestamp, (v) => writeStorage('st-timestamp', v));
+// 消息标签总开关（时间戳 + RX/TX 方向字符）：纯显示层，不影响数据接收、也不改变方向过滤；
+// 关闭后立即隐藏所有消息的标签（包括历史消息）。
+export const showMessageMeta = ref(readStorageChecked<boolean>('st-show-meta', true, isBoolean));
+watch(showMessageMeta, (v) => writeStorage('st-show-meta', v));
+// 左侧连接面板折叠状态：App 控制布局，DetailView/SplitView 用它决定是否把 RX/TX 过滤按钮放进工具带
+export const sidebarCollapsed = ref(readStorageChecked<boolean>('st-sidebar-collapsed', false, isBoolean));
+watch(sidebarCollapsed, (v) => writeStorage('st-sidebar-collapsed', v));
 // 自动滚动默认关闭（安全默认：自动发送/高频模式下用户自己控制是否跟随）
 export const autoScroll = ref(readStorageChecked<boolean>('st-autoscroll', false, isBoolean));
 watch(autoScroll, (v) => writeStorage('st-autoscroll', v));
@@ -268,11 +273,12 @@ export const exportSessionLog = async (session: ConnectionSession) => {
   const lines = session.messages
     .filter((m) => !m.hidden) // 所见即所导：方向关闭期间隐藏的行不导出
     .map((m) => {
-      const ts = m.snap ? m.snap.ts : (session.showTimestamp ?? true);
-      const dir = m.snap ? (m.direction === 'RX' ? m.snap.rx : m.snap.tx) : true;
+      // 所见即所导：工具带「标签」总开关关闭时，导出内容也不带时间戳/RX/TX 前缀
+      const meta = showMessageMeta.value;
+      const dir = meta && (m.snap ? (m.direction === 'RX' ? m.snap.rx : m.snap.tx) : true);
       const hex = m.snap ? m.snap.hex : (session.hexMode ?? false);
       let line = '';
-      if (ts) line += `${m.time} `;
+      if (meta) line += `${m.time} `;
       if (dir) line += `${m.direction} `;
       line += hex && m.raw ? bytesToHex(m.raw) : m.text;
       return line;
@@ -326,10 +332,9 @@ const appendSessionMessage = (session: ConnectionSession, direction: MessageDire
     direction,
     text,
     raw: bytes,
-    // 固化入队时刻的显示开关：HEX/时间戳/方向前缀只对新数据生效，旧消息保持原样；
+    // 固化入队时刻的显示开关：HEX/方向前缀只对新数据生效，旧消息保持原样；
     // 方向显示关闭期间入队的行标记 hidden（不补显示：重开后只显示新数据，隐藏期数据不入框）
     snap: {
-      ts: session.showTimestamp ?? true,
       rx: session.filterRx ?? true,
       tx: session.filterTx ?? true,
       hex: session.hexMode ?? false,
@@ -571,7 +576,6 @@ export const createSession = () => {
         txBytes: 0,
         rxBytes: 0,
         statusMsg: '已创建，等待打开',
-        showTimestamp: true,
         filterRx: true,
         filterTx: true,
       }
@@ -588,7 +592,6 @@ export const createSession = () => {
         txBytes: 0,
         rxBytes: 0,
         statusMsg: '已创建，等待打开',
-        showTimestamp: true,
         filterRx: true,
         filterTx: true,
       };

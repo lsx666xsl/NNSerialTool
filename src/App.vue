@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watchEffect } from 'vue';
-import { appliedTheme, disposeApp, fontFamilyStack, initApp, viewMode } from './stores/appStore';
+import { appliedTheme, disposeApp, fontFamilyStack, initApp, sidebarCollapsed, viewMode } from './stores/appStore';
 import { startPeriodicUpdateCheck, stopPeriodicUpdateCheck } from './stores/updateStore';
-import { readStorage, writeStorage } from './utils/storage';
 import { initPlugins } from './plugins';
 import { resolveView } from './plugins/registry';
 import { getCurrentWindow } from '@tauri-apps/api/window';
@@ -52,12 +51,10 @@ const builtinView = computed(() => (activeView.value?.source === 'builtin' ? act
 const pluginView = computed(() => (activeView.value && activeView.value.source !== 'builtin' ? activeView.value : null));
 
 // ---------- 左侧面板折叠 ----------
-// 折叠后消息/波形区占满整宽；状态持久化，重启恢复
-const SIDEBAR_KEY = 'st-sidebar-collapsed';
-const sidebarCollapsed = ref(readStorage<boolean>(SIDEBAR_KEY, false));
+// 折叠后消息/波形区占满整宽；状态持久化在 appStore（DetailView/SplitView 也要据此决定
+// 是否把 RX/TX 过滤按钮放进工具带），重启恢复。
 const toggleSidebar = () => {
   sidebarCollapsed.value = !sidebarCollapsed.value;
-  writeStorage(SIDEBAR_KEY, sidebarCollapsed.value);
 };
 
 import SessionForm from './components/SessionForm.vue';

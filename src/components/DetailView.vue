@@ -21,6 +21,8 @@ import {
   sendData,
   sendQuickCommand,
   sendSettings,
+  showMessageMeta,
+  sidebarCollapsed,
   toggleSendHex,
 } from '../stores/appStore';
 
@@ -58,15 +60,16 @@ const onDividerDown = (e: PointerEvent) => {
 const cmdStripVisible = ref(false);
 
 // 发送框高度（可拖动上边界调整；拖高发送框时接收框自动收缩，二者互斥共享空间）
-const sendHeight = ref(64);
+// 默认 72px：优先把纵向空间留给接收区，需要时再向上拖高
+const sendHeight = ref(72);
 
 const onResizeHandleDown = (e: PointerEvent) => {
   e.preventDefault();
   const startY = e.clientY;
   const startHeight = sendHeight.value;
   const onMove = (ev: PointerEvent) => {
-    // 向上拖 = 增高；限制在 46~340px
-    sendHeight.value = Math.min(340, Math.max(92, startHeight - (ev.clientY - startY)));
+    // 向上拖 = 增高；限制在 72~340px
+    sendHeight.value = Math.min(340, Math.max(72, startHeight - (ev.clientY - startY)));
   };
   const onUp = () => {
     window.removeEventListener('pointermove', onMove);
@@ -109,14 +112,13 @@ const onResizeHandleDown = (e: PointerEvent) => {
         <div class="work-main">
           <MessageFlow
             :messages="activeSession.messages"
-            :show-timestamp="activeSession.showTimestamp ?? true"
             :filter-rx="activeSession.filterRx ?? true"
             :filter-tx="activeSession.filterTx ?? true"
             :hex-mode="activeSession.hexMode ?? false"
           />
 
           <!-- 工具带：顶部虚线即拖拽热区（按住上下拖调整发送框高度，与接收框互斥）；
-               顺序：自动滚动 / 自动换行 / 自动发送 / HEX / 导出 / 清空 -->
+               顺序：自动滚动 / 自动换行 / 自动发送 / 标签 /（侧栏收起时）RX TX / HEX / 导出 / 清空 -->
           <div class="panel-toolbar">
             <div class="toolbar-drag" title="上下拖动调整发送框高度" @pointerdown="onResizeHandleDown"></div>
             <button
@@ -162,22 +164,34 @@ const onResizeHandleDown = (e: PointerEvent) => {
               />
               <span class="toolbar-item">ms</span>
             </template>
+            <!-- 标签总开关：只控制时间戳与 RX/TX 前缀的显示，不影响接收/方向过滤 -->
             <button
               class="tb-toggle"
-              :class="{ on: activeSession.filterRx ?? true }"
-              title="显示 RX 行（关闭=接收照常但不显示在消息框）"
-              @click="activeSession.filterRx = !(activeSession.filterRx ?? true)"
+              :class="{ on: showMessageMeta }"
+              title="显示/隐藏消息的时间戳与 RX/TX 前缀（纯显示层，不影响接收和方向过滤）"
+              @click="showMessageMeta = !showMessageMeta"
             >
-              RX
+              标签
             </button>
-            <button
-              class="tb-toggle"
-              :class="{ on: activeSession.filterTx ?? true }"
-              title="显示 TX 行（关闭=发送照常但不显示在消息框）"
-              @click="activeSession.filterTx = !(activeSession.filterTx ?? true)"
-            >
-              TX
-            </button>
+            <!-- RX/TX 过滤按钮：左侧会话面板收起后才在这里出现（展开时用卡片上的开关） -->
+            <template v-if="sidebarCollapsed">
+              <button
+                class="tb-toggle"
+                :class="{ on: activeSession.filterRx ?? true }"
+                title="显示 RX 行（关闭=接收照常但不显示在消息框）"
+                @click="activeSession.filterRx = !(activeSession.filterRx ?? true)"
+              >
+                RX
+              </button>
+              <button
+                class="tb-toggle"
+                :class="{ on: activeSession.filterTx ?? true }"
+                title="显示 TX 行（关闭=发送照常但不显示在消息框）"
+                @click="activeSession.filterTx = !(activeSession.filterTx ?? true)"
+              >
+                TX
+              </button>
+            </template>
             <button
               class="tb-toggle"
               :class="{ on: activeSession.sendHexMode ?? false }"
@@ -257,25 +271,31 @@ const onResizeHandleDown = (e: PointerEvent) => {
 .detail-view {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 8px;
 }
 
 .detail-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px;
+}
+
+/* 会话标题行紧凑化：把纵向空间留给消息区 */
+.detail-header h2 {
+  font-size: 14px;
+  line-height: 1.3;
 }
 
 .button-group {
   display: flex;
   align-items: stretch;
-  gap: 12px;
+  gap: 8px;
 }
 
 /* 已连接/未连接时标题右侧的删除会话按钮：与连接按钮同款红色样式 */
 .x-session {
-  width: 36px;
+  width: 32px;
   padding: 0;
   display: inline-flex;
   align-items: center;
@@ -296,11 +316,11 @@ const onResizeHandleDown = (e: PointerEvent) => {
   flex: 1;
   min-height: 0;
   display: flex;
-  gap: 10px;
+  gap: 8px;
   background: rgba(243, 244, 246, 0.7);
   border: 1px solid rgba(23, 26, 33, 0.07);
   border-radius: 8px;
-  padding: 12px;
+  padding: 8px;
 }
 
 .work-main {
@@ -317,17 +337,17 @@ const onResizeHandleDown = (e: PointerEvent) => {
 .panel-toolbar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
-  padding: 6px 2px;
-  margin-top: 10px;
+  padding: 3px 2px;
+  margin-top: 4px;
   border-top: 1px dashed rgba(23, 26, 33, 0.12);
   flex-shrink: 0;
 }
 
 /* 工具带按钮紧凑化：只作用于本行，不影响全局其他按钮 */
 .panel-toolbar > button {
-  padding: 4px 10px;
+  padding: 3px 8px;
   font-size: 12px;
   border-radius: 5px;
 }
@@ -359,7 +379,7 @@ const onResizeHandleDown = (e: PointerEvent) => {
 .send-row {
   display: flex;
   align-items: flex-end;
-  min-height: 92px;
+  min-height: 72px;
   gap: 10px;
   flex-shrink: 0;
 }

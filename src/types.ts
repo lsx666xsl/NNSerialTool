@@ -43,9 +43,10 @@ export type SessionMessage = {
   direction: MessageDirection;
   text: string;
   raw?: number[];
-  // 入队时刻的显示开关快照：时间戳/方向前缀/HEX 只影响"新到的数据"，
-  // 旧消息按入队时的规则渲染——切开关不全量翻转历史（大数据量切 HEX 不卡顿）
-  snap?: { ts: boolean; rx: boolean; tx: boolean; hex: boolean };
+  // 入队时刻的显示开关快照：方向前缀/HEX 只影响"新到的数据"，
+  // 旧消息按入队时的规则渲染——切开关不全量翻转历史（大数据量切 HEX 不卡顿）。
+  // 时间戳与方向字符的"显隐"由工具带「标签」总开关统一控制（纯显示层，立即生效）。
+  snap?: { rx: boolean; tx: boolean; hex: boolean };
   // 入队时刻该方向显示开关处于关闭 → 整行隐藏（不补显示：重开只显示新数据）
   hidden?: boolean;
 };
@@ -70,8 +71,7 @@ export type ConnectionSession = {
   inBus?: boolean;
   // 是否已提示过“消息达上限被裁剪”，避免重复刷屏
   warnedOverflow?: boolean;
-  // 会话级显示开关：时间戳按会话控制；RX/TX 为独立的方向过滤开关（只看收/只看发/都看）
-  showTimestamp?: boolean;
+  // RX/TX 为独立的方向过滤开关（只看收/只看发/都看）；时间戳/方向字符由工具带「标签」开关控制
   filterRx?: boolean;
   filterTx?: boolean;
   // 十六进制显示模式：亮起后收发数据以 HEX 字节流显示（默认字符串）

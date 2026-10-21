@@ -1,18 +1,17 @@
 <script setup lang="ts">
 import { computed, onActivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { SessionMessage } from '../types';
-import { autoScroll, fontSize } from '../stores/appStore';
+import { autoScroll, fontSize, showMessageMeta } from '../stores/appStore';
 import { bytesToHex } from '../utils/format';
 import { splitLogTags, type LogSeg } from '../utils/logLevel';
 
 // 流式消息区：详情视图与分屏视图共用。
-// 时间戳与 RX/TX 开关只控制"前缀标签"的显隐——数据本身始终显示。
-// 自动滚动（默认关闭，工具栏手动勾选）：勾选后只要有新消息就滚到最底下；
+// 时间戳与 RX/TX 是"前缀标签"，仅作显示；工具栏的「标签」总开关可一次性隐藏全部标签
+//（不影响接收、方向过滤与消息内容）。自动滚动（默认关闭，工具栏手动勾选）：勾选后只要有新消息就滚到最底下；
 // “↓ 最新”按钮仅在「内容溢出出现滚动条 且 不在底部」时动态出现。
 // 支持 Ctrl+滚轮实时调整字号（11-22）。
 const props = defineProps<{
   messages: SessionMessage[];
-  showTimestamp: boolean;
   filterRx: boolean;
   filterTx: boolean;
   hexMode: boolean;
@@ -23,8 +22,7 @@ const props = defineProps<{
 const visibleMessages = computed(() => props.messages.filter((m) => !m.hidden));
 
 // 每条消息生效的显示开关：优先用入队时刻的快照（开关只影响新数据，
-// 旧消息保持原样——切 HEX/时间戳不再全量翻转历史）；旧消息（无快照）回退 props。
-const msgTs = (m: SessionMessage) => m.snap ? m.snap.ts : props.showTimestamp;
+// 旧消息保持原样——切 HEX 不再全量翻转历史）；旧消息（无快照）回退 props。
 const msgRx = (m: SessionMessage) => m.snap ? m.snap.rx : props.filterRx;
 const msgTx = (m: SessionMessage) => m.snap ? m.snap.tx : props.filterTx;
 const msgHex = (m: SessionMessage) => m.snap ? m.snap.hex : props.hexMode;
@@ -33,16 +31,9 @@ const msgHex = (m: SessionMessage) => m.snap ? m.snap.hex : props.hexMode;
 const showDirTag = (m: SessionMessage) =>
   m.direction === 'RX' ? msgRx(m) : msgTx(m);
 
-// 纯连续流模式判定也按"当前开关"（决定整体行结构——行式 or 行内连续流）。
-// 旧消息混排时以当前开关决定布局（行结构属于容器，不属于单条消息）。
-const isContinuous = computed(() => !props.showTimestamp && !props.filterRx && !props.filterTx);
-
-// 单条消息的显示文本：HEX 模式渲染字节流（连续流模式补尾随空格保证块间分隔）
+// 单条消息的显示文本：HEX 模式渲染字节流
 const renderText = (m: SessionMessage) => {
-  if (msgHex(m) && m.raw) {
-    const hex = bytesToHex(m.raw);
-    return isContinuous.value ? hex + ' ' : hex;
-  }
+  if (msgHex(m) && m.raw) return bytesToHex(m.raw);
   return m.text;
 };
 
@@ -125,7 +116,7 @@ onActivated(() => {
     <div
       ref="flowEl"
       class="message-flow"
-      :class="{ anchored: visibleMessages.length > 0 && !isContinuous, continuous: isContinuous }"
+      :class="{ anchored: visibleMessages.length > 0 }"
       :style="{ fontSize: fontSize + 'px' }"
       @scroll="onScroll"
       @wheel="onWheel"
@@ -137,12 +128,13 @@ onActivated(() => {
       <div
         v-for="message in visibleMessages"
         :key="message.id"
-        v-memo="[msgTs(message), msgRx(message), msgTx(message), msgHex(message), isContinuous]"
+        v-memo="[msgRx(message), msgTx(message), msgHex(message), showMessageMeta]"
         class="flow-line"
         :class="message.direction.toLowerCase()"
       >
-        <div class="flow-meta">
-          <span v-if="showTimestamp && msgTs(message) && message.time" class="flow-time">{{ message.time }}</span>
+        <!-- 标签总开关关闭时整块元信息不渲染（时间戳 + RX/TX 一起隐藏） -->
+        <div v-if="showMessageMeta" class="flow-meta">
+          <span v-if="message.time" class="flow-time">{{ message.time }}</span>
           <span v-if="showDirTag(message)" class="flow-dir">{{ message.direction }}</span>
         </div>
         <!-- 十六进制模式：显示原始字节 HEX 流（无原始字节的旧消息回退文本）；
@@ -309,28 +301,6 @@ onActivated(() => {
 .lv-fatal {
   color: #ffffff;
   background: #c53030;
-}
-
-/* 纯连续流模式（时间戳+RX+TX 全关）：去掉行结构，块转行内，
-   数据按到达顺序连成一段（数据内的真实换行符仍会换行） */
-.message-flow.continuous {
-  display: block;
-}
-
-/* 空 meta 块会把 inline 行打断，一并隐藏 */
-.message-flow.continuous .flow-meta {
-  display: none;
-}
-
-.message-flow.continuous .flow-line,
-.message-flow.continuous .flow-text {
-  display: inline;
-  padding: 0;
-  border-radius: 0;
-}
-
-.message-flow.continuous .flow-line:hover {
-  background: transparent;
 }
 
 /* 深色主题：深底浅字，方向色提亮 */
