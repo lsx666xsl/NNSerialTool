@@ -21,8 +21,8 @@ import type { ConnectionSession } from '../types';
 // ① 状态点（即连接开关）+ 名称 + 删除 X（始终显示）
 // ② 连接路径（ip:port->ip:port；串口为波特率矩形框，可实时编辑）
 // ③ 收发字节统计兼显示开关（点击 Tx/Rx 矩形按钮切换方向数据是否显示）
-// ④ 开关行：分屏 / 总览 / RX HEX + 消息计数
-// 时间戳与 RX/TX 文字标签统一由消息工具带的「标签」总开关控制（只影响显示，不影响接收/过滤）。
+// ④ 开关行：分屏 / 总览 + 消息计数
+// 时间戳/RX/TX 文字标签由工具带「标签」开关控制；RX HEX（接收显示格式）在消息工具带 TX HEX 右侧。
 // 标题行右侧 = 一键打开/关闭列表中的全部连接。
 
 // 全部已连接时按钮变为"全部关闭"，否则为"全部打开"
@@ -185,7 +185,7 @@ const showStatusError = (session: ConnectionSession) => {
           </button>
         </div>
 
-        <!-- 行4：分屏 / 总览 / RX HEX 开关 + 消息计数（时间戳/方向标签统一走工具带「标签」开关） -->
+        <!-- 行4：分屏 / 总览 开关 + 消息计数（标签与 RX HEX 在消息工具带） -->
         <div class="session-actions">
           <span class="toggles">
             <button
@@ -203,14 +203,6 @@ const showStatusError = (session: ConnectionSession) => {
               @click.stop="session.inBus = !(session.inBus ?? false)"
             >
               总览
-            </button>
-            <button
-              class="mini-toggle"
-              :class="{ on: session.hexMode ?? false }"
-              title="消息显示 HEX（亮起=HEX，灰色=字符串；只影响新收到的数据）"
-              @click.stop="session.hexMode = !(session.hexMode ?? false)"
-            >
-              RX HEX
             </button>
           </span>
           <span class="msg-count">{{ session.messageCount }} 条</span>

@@ -139,6 +139,14 @@ const isLooping = (session: import('../types').ConnectionSession) =>
           >
             TX HEX
           </button>
+          <button
+            class="mini-toggle"
+            :class="{ on: session.hexMode ?? false }"
+            title="消息显示 HEX（只影响新收到的数据；关闭=按字符串显示）"
+            @click="session.hexMode = !(session.hexMode ?? false)"
+          >
+            RX HEX
+          </button>
           <button class="mini-toggle ghost-btn" title="导出当前消息框内容为日志文件" @click="exportSessionLog(session)">导出</button>
           <button class="mini-toggle ghost-btn" title="清空本面板消息" @click="clearSessionReceive(session)">清空</button>
         </div>

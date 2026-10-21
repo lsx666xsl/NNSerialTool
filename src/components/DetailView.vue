@@ -10,6 +10,7 @@ import {
   cycleNewline,
   exportSessionLog,
   filterHexInput,
+  isSessionBusy,
   loopSessionId,
   loopTargetName,
   newlineLabel,
@@ -35,6 +36,14 @@ const connected = computed(() => activeSession.value?.status === 'connected');
 const isLooping = computed(
   () => !!activeSession.value && loopSessionId.value === activeSession.value.id && sendSettings.value.loopSend
 );
+
+// 标题右侧状态点即连接开关（与连接列表卡片同款交互）：绿=已连接点击关闭，红=未连接点击打开
+const toggleConnectionState = () => {
+  const session = activeSession.value;
+  if (!session || isSessionBusy(session.id)) return;
+  if (session.status === 'connected') void closeConnection(session);
+  else void openConnection(session);
+};
 
 // 拓展命令编辑模式：切换后按钮变成可编辑的名称/内容输入行
 const cmdEditing = ref(false);
@@ -85,14 +94,25 @@ const onResizeHandleDown = (e: PointerEvent) => {
     <div v-if="!activeSession" class="empty-box large">请选择或新建一个连接会话。</div>
 
     <template v-else>
-      <!-- 头部：会话名 + 连接开关；未连接（蓝色打开按钮）时右侧出现删除会话 X -->
+      <!-- 头部：会话名 + 连接状态点（点击开关连接）；未连接时右侧出现删除会话 X -->
       <div class="detail-header">
         <div class="detail-title">
           <h2>{{ activeSession.name }}</h2>
         </div>
         <div class="button-group">
-          <button v-if="activeSession.status === 'closed'" class="primary-btn" @click="openConnection(activeSession)">打开连接</button>
-          <button v-else class="danger-btn" @click="closeConnection(activeSession)">关闭连接</button>
+          <button
+            class="status-dot"
+            :class="activeSession.status"
+            :disabled="isSessionBusy(activeSession.id)"
+            :title="
+              isSessionBusy(activeSession.id)
+                ? '连接状态切换中…'
+                : activeSession.status === 'connected'
+                  ? '点击关闭连接'
+                  : '点击打开连接'
+            "
+            @click="toggleConnectionState"
+          ></button>
           <button
             v-if="activeSession.status === 'closed'"
             class="x-session"
@@ -118,7 +138,7 @@ const onResizeHandleDown = (e: PointerEvent) => {
           />
 
           <!-- 工具带：顶部虚线即拖拽热区（按住上下拖调整发送框高度，与接收框互斥）；
-               顺序：自动滚动 / 自动换行 / 自动发送 / 标签 /（侧栏收起时）RX TX / HEX / 导出 / 清空 -->
+               顺序：自动滚动 / 自动换行 / 自动发送 / 标签 /（侧栏收起时）RX TX / TX HEX / RX HEX / 导出 / 清空 -->
           <div class="panel-toolbar">
             <div class="toolbar-drag" title="上下拖动调整发送框高度" @pointerdown="onResizeHandleDown"></div>
             <button
@@ -199,6 +219,14 @@ const onResizeHandleDown = (e: PointerEvent) => {
               @click="toggleSendHex(activeSession)"
             >
               TX HEX
+            </button>
+            <button
+              class="tb-toggle"
+              :class="{ on: activeSession.hexMode ?? false }"
+              title="消息显示 HEX（只影响新收到的数据；关闭=按字符串显示）"
+              @click="activeSession.hexMode = !(activeSession.hexMode ?? false)"
+            >
+              RX HEX
             </button>
             <button class="ghost-btn" title="把当前消息框全部内容（含时间戳/方向标签）导出为日志文件；保存路径可在设置中配置" @click="exportSessionLog(activeSession)">
               导出
@@ -287,9 +315,39 @@ const onResizeHandleDown = (e: PointerEvent) => {
   line-height: 1.3;
 }
 
+/* 状态点即连接开关：与连接列表/分屏面板同款（12px，绿=已连接、红=未连接） */
+.status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  padding: 0;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.status-dot:hover:not(:disabled) {
+  transform: scale(1.3);
+}
+
+.status-dot.connected {
+  background: #3fa35c;
+  box-shadow: 0 0 6px rgba(63, 163, 92, 0.55);
+}
+
+.status-dot.closed {
+  background: #d4534f;
+  box-shadow: 0 0 6px rgba(212, 83, 79, 0.45);
+}
+
+.status-dot:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
 .button-group {
   display: flex;
-  align-items: stretch;
+  align-items: center;
   gap: 8px;
 }
 
@@ -337,17 +395,18 @@ const onResizeHandleDown = (e: PointerEvent) => {
 .panel-toolbar {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex-wrap: wrap;
-  padding: 3px 2px;
-  margin-top: 4px;
+  /* 紧贴接收框下边框：只保留虚线分隔，不再额外留上边距 */
+  padding: 2px 2px 3px;
+  margin-top: 0;
   border-top: 1px dashed rgba(23, 26, 33, 0.12);
   flex-shrink: 0;
 }
 
 /* 工具带按钮紧凑化：只作用于本行，不影响全局其他按钮 */
 .panel-toolbar > button {
-  padding: 3px 8px;
+  padding: 2px 6px;
   font-size: 12px;
   border-radius: 5px;
 }
