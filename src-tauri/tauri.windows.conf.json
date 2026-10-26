@@ -1,5 +1,5 @@
 {
   "bundle": {
-    "resources": ["target/release/nn.exe"]
+    "resources": ["target/release/nn.exe", "resources/nn/SKILL.md"]
   }
 }

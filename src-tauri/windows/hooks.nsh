@@ -43,15 +43,16 @@ ${UnStrRep}
     ${EndIf}
   ${EndIf}
 
-  ; ② 安装 AI SKILL（nn.exe 就绪才执行）。
-  ;    Exec 非阻塞：ExecWait 会被杀软对新解压 exe 的实时扫描扣住，导致安装器假死；
-  ;    Exec 启动失败（文件缺失/被占用）只记录，不打断安装——SKILL 可稍后手动重装。
-  ${If} ${FileExists} "$INSTDIR\nn.exe"
-    ClearErrors
-    Exec '"$INSTDIR\nn.exe" install-skill'
-    ${If} ${Errors}
-      DetailPrint "nn install-skill 启动失败，可稍后在终端手动执行"
-    ${EndIf}
+  ; ② 安装 AI SKILL：直接复制随包资源，不再启动 nn.exe。
+  ;    旧实现用 Exec 启动刚解压的 nn.exe，部分杀软实时扫描会阻塞 CreateProcess，
+  ;    导致安装器卡在“执行 nn install-skill”（ExecWait 已换 Exec 仍会中招）。
+  ;    复制静态文件没有进程启动/扫描阻塞风险；资源缺失时只提示，可手动 nn install-skill。
+  ${If} ${FileExists} "$INSTDIR\resources\nn\SKILL.md"
+    CreateDirectory "$PROFILE\.agents\skills\nn"
+    CopyFiles /SILENT "$INSTDIR\resources\nn\SKILL.md" "$PROFILE\.agents\skills\nn"
+    DetailPrint "AI SKILL 已安装到 $PROFILE\.agents\skills\nn\SKILL.md"
+  ${Else}
+    DetailPrint "未找到 SKILL.md 资源，可稍后在终端运行 nn install-skill"
   ${EndIf}
 
   ; ③ PATH 询问。静默安装一律跳过：不做静默自动修改，避免企业部署意外
