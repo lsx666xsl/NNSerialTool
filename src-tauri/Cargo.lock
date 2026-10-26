@@ -3501,7 +3501,7 @@ dependencies = [
 
 [[package]]
 name = "serialtool"
-version = "0.6.6"
+version = "0.6.7"
 dependencies = [
  "font-kit",
  "if-addrs",

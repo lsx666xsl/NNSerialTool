@@ -105,7 +105,9 @@ nn_path_add:
   ${EndIf}
   ; WriteRegExpandStr：保持 REG_EXPAND_SZ，PATH 里的 %USERPROFILE% 等仍可展开
   WriteRegExpandStr HKCU "Environment" "Path" "$6"
-  SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment"
+  ; /TIMEOUT：广播 WM_SETTINGCHANGE 时若存在无响应顶层窗口，SendMessage 会永久阻塞安装器；
+  ; 限制 1 秒后继续，环境变量本身已写入注册表，不依赖广播完成。
+  SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=1000
   DetailPrint "已把 $INSTDIR 加入用户 PATH"
 
 nn_path_done:
@@ -141,14 +143,16 @@ nn_path_done:
           ${Else}
             WriteRegExpandStr HKCU "Environment" "Path" "$1"
           ${EndIf}
-          SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment"
+          ; 同上：卸载时广播也可能被无响应窗口卡住，加 1s 超时
+          SendMessage ${HWND_BROADCAST} ${WM_SETTINGCHANGE} 0 "STR:Environment" /TIMEOUT=1000
           DetailPrint "已从用户 PATH 移除 $INSTDIR"
         ${EndIf}
       ${EndIf}
     ${EndIf}
 
-    ; ② 删除 AI SKILL 目录。注意：$PROFILE 是"执行卸载的用户"，
-    ;    若由管理员替其他用户卸载，其他用户目录下的副本不会被清理（已知限制）
-    RMDir /r "$PROFILE\.agents\skills\nn"
+    ; ② 删除 AI SKILL 文件。只删本工具写入的 SKILL.md，再尝试删空目录；
+    ;    不用 RMDir /r 递归：若 .agents/skills/nn 被同步盘/符号链接接管，递归删除可能长时间卡住。
+    Delete "$PROFILE\.agents\skills\nn\SKILL.md"
+    RMDir "$PROFILE\.agents\skills\nn"
   ${EndIf}
 !macroend
