@@ -21,7 +21,7 @@ import {
 } from '../stores/appStore';
 
 // 分屏视图：勾选的多个连接并排显示，各自独立的接收流、紧凑工具带与发送框。
-// 工具带与单屏同序（自动滚动 / 自动换行 / 自动发送+间隔 / 标签 / HEX / 导出 / 清空），
+// 工具带与单屏同序（自动滚动 / 自动换行 / 自动发送+间隔 / 标签 / TX HEX / RX HEX / 导出 / 清空），
 // 仅少"拓展命令"开关（拓展命令只在单屏生效）；RX/TX 过滤只在侧栏收起时出现在这里。
 // HEX 切换与输入过滤复用 appStore 共享实现（与单屏行为一致）。
 
@@ -62,7 +62,7 @@ const isLooping = (session: import('../types').ConnectionSession) =>
           :filter-tx="session.filterTx ?? true"
           :hex-mode="session.hexMode ?? false"
         />
-        <!-- 紧凑工具带：顺序与单屏一致（自动滚动 / 自动换行 / 自动发送+间隔 / 标签 / HEX / 导出 / 清空；无拓展命令） -->
+        <!-- 紧凑工具带：顺序与单屏一致（自动滚动 / 自动换行 / 自动发送+间隔 / 标签 / TX HEX / RX HEX / 导出 / 清空；无拓展命令） -->
         <div class="split-toolbar">
           <button
             class="mini-toggle"

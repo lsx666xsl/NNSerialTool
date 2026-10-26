@@ -63,6 +63,7 @@ fn print_usage() {
   nn check-update [--json]                检查是否有新版本（0=最新，10=有更新，4=检查失败）
   nn examples                             查看常用命令示例（串口/TCP/UDP/HEX/自动采集）
   nn help [子命令]                        查看某个子命令的完整参数与示例
+  nn install-skill                        重装 AI SKILL 到 ~/.agents/skills/nn/（安装包缺失时用）
 
 参数标记: <必选> 为必须填写，[可选] 可省略；例如 nn log -p COM3 -n 200 中 -p 必填、-n 可选。
 
@@ -70,13 +71,15 @@ fn print_usage() {
   -p / --port <口>       串口名（log/send 用：Windows COM3 / Linux /dev/ttyUSB0 /
                          macOS /dev/tty.usbmodem*）；tcp/udp 子命令下为网络端口
   -b / --baud <速率>     波特率（默认 115200）
-  --lines <N>            读满 N 行后退出
-  --duration <秒>        持续 N 秒后退出（可与 --lines 组合，先到先退）
-  --hex                  以十六进制输出原始字节
-  --nnwave               按 NN-Wave 协议解码为 CSV: t_ms,ch1,ch2,...
+  -n / --lines <N>       读满 N 行后退出
+  -t / --duration <秒>   持续 N 秒后退出（可与 --lines 组合，先到先退）
+  -H / --host <地址>     tcp 目标地址
+  --port-tcp <端口>      tcp/udp 网络端口的显式写法（与 --port 等价）
+  -x / --hex             以十六进制输出原始字节；send 时 -d 按 HEX 解析
+  -w / --nnwave          按 NN-Wave 协议解码为 CSV: t_ms,ch1,ch2,...
                          （解码为 nn 内置，无需安装波形插件）
   -d / --data <内容>     发送内容（--hex 时为 HEX 字符串）
-  --out <文件>           日志文件路径（默认 exe 同级 NNlog/<来源>-<时间戳>.log，自动创建目录）
+  -o / --out <文件>      日志文件路径（默认 exe 同级 NNlog/<来源>-<时间戳>.log，自动创建目录）
   --json                 仅 version / check-update 使用：输出机器可读 JSON
 
 退出码: 0 成功 / 2 参数错误 / 3 打开失败 / 4 检查更新失败 / 10 有新版本"
@@ -674,10 +677,20 @@ fn cmd_help(topic: Option<&str>) -> i32 {
 标记: <必选> 为必须填写，[可选] 可省略。"
         ),
         Some("examples") | Some("example") => return cmd_examples(),
+        Some("install-skill") => println!(
+            "nn install-skill —— 把 AI SKILL 写入用户目录（覆盖式）
+
+用法:
+  nn install-skill
+
+目标路径: %USERPROFILE%\\.agents\\skills\\nn\\SKILL.md（Windows）；
+          $HOME/.agents/skills/nn/SKILL.md（Linux/macOS）
+退出码: 0 成功 / 3 创建目录或写文件失败"
+        ),
         Some("ports") | Some("version") | Some("check-update") | None => print_usage(),
         Some(other) => {
             println!(
-                "未知主题: {}（可选 log/send/tcp/udp/ports/version/check-update/examples）",
+                "未知主题: {}（可选 log/send/tcp/udp/ports/version/check-update/examples/install-skill）",
                 other
             );
             return EXIT_ARGS;

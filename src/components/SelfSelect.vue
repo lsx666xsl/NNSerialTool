@@ -129,13 +129,18 @@ const toggle = () => {
   // 表单里的下拉不能比所在面板更宽：长串口产品名会把 max-content 浮层撑出面板右缘。
   // 按“锚点 → 最近面板边界”的可用空间收紧 maxWidth，超长选项在浮层内省略显示。
   const host = box.closest<HTMLElement>('.panel, .content-card');
+  let maxWidth = 320;
   if (host) {
     const hostRect = host.getBoundingClientRect();
     const space = style.right !== undefined
       ? (rect.right - hostRect.left) / unit
       : (hostRect.right - rect.left) / unit;
-    style.maxWidth = `${Math.max(120, Math.min(320, space - 6))}px`;
+    maxWidth = Math.max(64, Math.min(320, space - 6));
   }
+  style.maxWidth = `${maxWidth}px`;
+  // min-width 会覆盖 max-width；触发框本身比可用空间宽时也要一起收紧，
+  // 否则 maxWidth 的 6px 安全边距会被 min-width 吃掉。
+  style.minWidth = `${Math.min(rect.width / unit, maxWidth)}px`;
   if (availBelow >= 96 || availBelow >= availAbove) {
     style.top = `${rect.bottom / unit}px`;
     style.maxHeight = `${Math.max(96, Math.min(240, availBelow))}px`;
@@ -229,6 +234,7 @@ onUnmounted(() => {
         :class="{ active: o.value === modelValue, hl: idx === hlIndex }"
         role="option"
         :aria-selected="o.value === modelValue"
+        :title="o.label"
         @click="pick(o.value)"
       >
         {{ o.label }}

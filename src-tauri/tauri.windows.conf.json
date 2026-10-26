@@ -1,5 +1,10 @@
 {
   "bundle": {
-    "resources": ["target/release/nn.exe", "resources/nn/SKILL.md"]
+    "resources": ["target/release/nn.exe", "resources/nn/SKILL.md"],
+    "windows": {
+      "nsis": {
+        "template": "windows/installer.nsi"
+      }
+    }
   }
 }

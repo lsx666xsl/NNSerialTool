@@ -104,6 +104,13 @@ const onResizeHandleDown = (e: PointerEvent) => {
             class="status-dot"
             :class="activeSession.status"
             :disabled="isSessionBusy(activeSession.id)"
+            :aria-label="
+              isSessionBusy(activeSession.id)
+                ? '连接状态切换中'
+                : activeSession.status === 'connected'
+                  ? '关闭连接：' + activeSession.name
+                  : '打开连接：' + activeSession.name
+            "
             :title="
               isSessionBusy(activeSession.id)
                 ? '连接状态切换中…'
@@ -228,7 +235,7 @@ const onResizeHandleDown = (e: PointerEvent) => {
             >
               RX HEX
             </button>
-            <button class="ghost-btn" title="把当前消息框全部内容（含时间戳/方向标签）导出为日志文件；保存路径可在设置中配置" @click="exportSessionLog(activeSession)">
+            <button class="ghost-btn" title="把当前消息框全部内容导出为日志文件（是否含时间戳/方向标签跟随「标签」开关）；保存路径可在设置中配置" @click="exportSessionLog(activeSession)">
               导出
             </button>
             <button class="ghost-btn" @click="clearSessionReceive(activeSession)">清空</button>
@@ -317,6 +324,7 @@ const onResizeHandleDown = (e: PointerEvent) => {
 
 /* 状态点即连接开关：与连接列表/分屏面板同款（12px，绿=已连接、红=未连接） */
 .status-dot {
+  position: relative;
   width: 12px;
   height: 12px;
   border-radius: 999px;
@@ -324,6 +332,14 @@ const onResizeHandleDown = (e: PointerEvent) => {
   padding: 0;
   cursor: pointer;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+/* 视觉仍是 12px 圆点，但把可点击区域扩到 24px，避免和删除 X 误触 */
+.status-dot::before {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: 999px;
 }
 
 .status-dot:hover:not(:disabled) {
@@ -348,7 +364,7 @@ const onResizeHandleDown = (e: PointerEvent) => {
 .button-group {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 
 /* 已连接/未连接时标题右侧的删除会话按钮：与连接按钮同款红色样式 */
@@ -468,7 +484,8 @@ const onResizeHandleDown = (e: PointerEvent) => {
   top: -3px;
   left: 0;
   right: 0;
-  height: 7px;
+  /* 只覆盖虚线上方 3px + 1px 边框，不再压住按钮顶部（padding-top 仅 2px） */
+  height: 4px;
   cursor: ns-resize;
   z-index: 3;
 }

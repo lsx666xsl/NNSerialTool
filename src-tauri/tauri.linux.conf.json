@@ -1,6 +1,6 @@
 {
   "bundle": {
-    "resources": ["target/release/nn"],
+    "resources": ["target/release/nn", "resources/nn/SKILL.md"],
     "linux": {
       "deb": {
         "postInstallScript": "./linux/postinstall.sh",

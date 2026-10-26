@@ -116,24 +116,24 @@ onActivated(() => {
     <div
       ref="flowEl"
       class="message-flow"
-      :class="{ anchored: visibleMessages.length > 0 }"
+      :class="{ anchored: visibleMessages.length > 0, 'hide-meta': !showMessageMeta }"
       :style="{ fontSize: fontSize + 'px' }"
       @scroll="onScroll"
       @wheel="onWheel"
     >
       <div v-if="visibleMessages.length === 0" class="flow-empty">等待接收数据</div>
       <!-- 两行式布局：第一行元信息（时间戳/方向），第二行起为数据正文；时间戳与 RX/TX 独立 -->
-      <!-- v-memo 依赖各消息自己的快照字段：开关切换只让"无快照的旧消息"重算，
-           带快照的消息按入队时规则固定不变（历史不翻转、不重渲染） -->
+      <!-- v-memo 不依赖 showMessageMeta：标签开关只切容器 CSS 类，
+           避免 2000 行消息在切换标签时整表重渲染 -->
       <div
         v-for="message in visibleMessages"
         :key="message.id"
-        v-memo="[msgRx(message), msgTx(message), msgHex(message), showMessageMeta]"
+        v-memo="[msgRx(message), msgTx(message), msgHex(message)]"
         class="flow-line"
         :class="message.direction.toLowerCase()"
       >
-        <!-- 标签总开关关闭时整块元信息不渲染（时间戳 + RX/TX 一起隐藏） -->
-        <div v-if="showMessageMeta" class="flow-meta">
+        <!-- 标签总开关由容器 .hide-meta 控制显示（不参与 v-memo 依赖） -->
+        <div class="flow-meta">
           <span v-if="message.time" class="flow-time">{{ message.time }}</span>
           <span v-if="showDirTag(message)" class="flow-dir">{{ message.direction }}</span>
         </div>
@@ -301,6 +301,11 @@ onActivated(() => {
 .lv-fatal {
   color: #ffffff;
   background: #c53030;
+}
+
+/* 标签总开关：隐藏时间戳/RX/TX 前缀。只改容器类，不触发消息行重渲染。 */
+.message-flow.hide-meta .flow-meta {
+  display: none;
 }
 
 /* 深色主题：深底浅字，方向色提亮 */

@@ -74,7 +74,9 @@ watch(appliedTheme, (t) => setTheme(t), { immediate: true });
 // ---------- 显示与日志偏好 ----------
 // 消息标签总开关（时间戳 + RX/TX 方向字符）：纯显示层，不影响数据接收、也不改变方向过滤；
 // 关闭后立即隐藏所有消息的标签（包括历史消息）。
-export const showMessageMeta = ref(readStorageChecked<boolean>('st-show-meta', true, isBoolean));
+// 兼容旧版全局时间戳开关 st-timestamp：新 key 尚未写入时沿用旧偏好，避免升级后回弹到“显示”。
+const legacyShowTimestamp = readStorageChecked<boolean>('st-timestamp', true, isBoolean);
+export const showMessageMeta = ref(readStorageChecked<boolean>('st-show-meta', legacyShowTimestamp, isBoolean));
 watch(showMessageMeta, (v) => writeStorage('st-show-meta', v));
 // 左侧连接面板折叠状态：App 控制布局，DetailView/SplitView 用它决定是否把 RX/TX 过滤按钮放进工具带
 export const sidebarCollapsed = ref(readStorageChecked<boolean>('st-sidebar-collapsed', false, isBoolean));

@@ -33,9 +33,20 @@ ${UnStrRep}
   ;    必须先确认根目录副本存在，再删嵌套副本：CopyFiles 失败（杀软拦截/磁盘满）时
   ;    嵌套副本是唯一一份，先删会导致 nn 彻底丢失。
   ${If} ${FileExists} "$INSTDIR\target\release\nn.exe"
-    CopyFiles /SILENT "$INSTDIR\target\release\nn.exe" "$INSTDIR\nn.exe"
-    ${If} ${FileExists} "$INSTDIR\nn.exe"
-      Delete "$INSTDIR\target\release\nn.exe"
+    ; 先复制成 nn.new.exe，再替换旧 nn.exe：旧文件存在时 FileExists 判断会假阳性，
+    ; 不能直接用它判断“根目录副本是否是本次新复制的”。
+    CopyFiles /SILENT "$INSTDIR\target\release\nn.exe" "$INSTDIR\nn.new.exe"
+    ${If} ${FileExists} "$INSTDIR\nn.new.exe"
+      Delete "$INSTDIR\nn.exe"
+      Rename "$INSTDIR\nn.new.exe" "$INSTDIR\nn.exe"
+      ${If} ${FileExists} "$INSTDIR\nn.new.exe"
+        ; 旧 nn.exe 被运行中的进程/杀软占用，替换失败：保留新副本，提示用户关闭 nn 后重装
+        ${IfNot} ${Silent}
+          MessageBox MB_ICONEXCLAMATION "nn.exe 正在被占用，未能更新到安装目录。$\n$\n请关闭正在运行的 nn 命令后重新安装；新副本已保留在 $INSTDIR\nn.new.exe。"
+        ${EndIf}
+      ${Else}
+        Delete "$INSTDIR\target\release\nn.exe"
+      ${EndIf}
     ${Else}
       ${IfNot} ${Silent}
         MessageBox MB_ICONEXCLAMATION "nn 命令行工具复制失败，已保留资源目录中的副本。$\n$\n如需命令行，请手动把 $INSTDIR 加入 PATH。"
@@ -47,17 +58,35 @@ ${UnStrRep}
   ;    旧实现用 Exec 启动刚解压的 nn.exe，部分杀软实时扫描会阻塞 CreateProcess，
   ;    导致安装器卡在“执行 nn install-skill”（ExecWait 已换 Exec 仍会中招）。
   ;    复制静态文件没有进程启动/扫描阻塞风险；资源缺失时只提示，可手动 nn install-skill。
+  ;    per-machine 安装时 $PROFILE 是提权账户，写进去当前用户也读不到：跳过并提示手动安装。
+  !if "${INSTALLMODE}" == "both"
+    ${If} $MultiUser.InstallMode == "AllUsers"
+      DetailPrint "为所有用户安装：跳过当前用户 SKILL/PATH（请登录目标用户后手动运行 nn install-skill）"
+      Goto nn_path_done
+    ${EndIf}
+  !endif
   ${If} ${FileExists} "$INSTDIR\resources\nn\SKILL.md"
     CreateDirectory "$PROFILE\.agents\skills\nn"
     CopyFiles /SILENT "$INSTDIR\resources\nn\SKILL.md" "$PROFILE\.agents\skills\nn"
-    DetailPrint "AI SKILL 已安装到 $PROFILE\.agents\skills\nn\SKILL.md"
+    ${If} ${FileExists} "$PROFILE\.agents\skills\nn\SKILL.md"
+      DetailPrint "AI SKILL 已安装到 $PROFILE\.agents\skills\nn\SKILL.md"
+    ${Else}
+      DetailPrint "AI SKILL 复制失败，可稍后在终端运行 nn install-skill"
+      ${IfNot} ${Silent}
+        MessageBox MB_ICONEXCLAMATION "AI SKILL 复制失败（目标目录不可写或被重定向）。$\n$\n可稍后在终端运行：nn install-skill"
+      ${EndIf}
+    ${EndIf}
   ${Else}
     DetailPrint "未找到 SKILL.md 资源，可稍后在终端运行 nn install-skill"
   ${EndIf}
 
-  ; ③ PATH 询问。静默安装一律跳过：不做静默自动修改，避免企业部署意外
+  ; ③ PATH 询问。静默/被动安装一律跳过：不做静默自动修改，避免企业部署意外
   ${If} ${Silent}
     DetailPrint "静默安装：跳过 PATH 修改（如需命令行请手动添加 $INSTDIR）"
+    Goto nn_path_done
+  ${EndIf}
+  ${If} $PassiveMode = 1
+    DetailPrint "被动安装：跳过 PATH 修改（如需命令行请手动添加 $INSTDIR）"
     Goto nn_path_done
   ${EndIf}
 
