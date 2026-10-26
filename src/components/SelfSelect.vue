@@ -23,9 +23,19 @@ const emit = defineEmits<{ (e: 'update:modelValue', v: string | number): void }>
 const open = ref(false);
 const wrapEl = ref<HTMLElement | null>(null);
 const popEl = ref<HTMLElement | null>(null);
-// 定位信息：宽度用 min-width（浮层本体 max-content 撑开），保证短触发框也能完整显示长选项
-const popStyle = ref<{ left?: string; right?: string; minWidth: string; maxHeight: string; top?: string; bottom?: string }>({
+// 定位信息：宽度用 min-width（浮层本体 max-content 撑开），保证短触发框也能完整显示长选项；
+// maxWidth 会按最近的 panel/content-card 边界再收紧，避免长选项把浮层撑出新建会话面板。
+const popStyle = ref<{
+  left?: string;
+  right?: string;
+  minWidth: string;
+  maxWidth: string;
+  maxHeight: string;
+  top?: string;
+  bottom?: string;
+}>({
   minWidth: '0px',
+  maxWidth: '320px',
   maxHeight: '240px',
 });
 // 展开时记录触发框位置：用于区分"会移动锚点的滚动"与"无关滚动"（如消息流自动滚动）
@@ -97,8 +107,17 @@ const toggle = () => {
   // 视口边界钳制：下方放不下时收缩浮层高度出滚动条；再不够则整体向上展开
   const availBelow = (window.innerHeight - rect.bottom - 10) / unit;
   const availAbove = (rect.top - 10) / unit;
-  const style: { left?: string; right?: string; minWidth: string; maxHeight: string; top?: string; bottom?: string } = {
+  const style: {
+    left?: string;
+    right?: string;
+    minWidth: string;
+    maxWidth: string;
+    maxHeight: string;
+    top?: string;
+    bottom?: string;
+  } = {
     minWidth: `${rect.width / unit}px`,
+    maxWidth: '320px',
     maxHeight: '240px',
   };
   // 横向：默认与触发框左对齐；触发框太靠右时改锚右缘，防止 max-content 撑出右边界
@@ -106,6 +125,16 @@ const toggle = () => {
     style.right = `${(window.innerWidth - rect.right) / unit}px`;
   } else {
     style.left = `${rect.left / unit}px`;
+  }
+  // 表单里的下拉不能比所在面板更宽：长串口产品名会把 max-content 浮层撑出面板右缘。
+  // 按“锚点 → 最近面板边界”的可用空间收紧 maxWidth，超长选项在浮层内省略显示。
+  const host = box.closest<HTMLElement>('.panel, .content-card');
+  if (host) {
+    const hostRect = host.getBoundingClientRect();
+    const space = style.right !== undefined
+      ? (rect.right - hostRect.left) / unit
+      : (hostRect.right - rect.left) / unit;
+    style.maxWidth = `${Math.max(120, Math.min(320, space - 6))}px`;
   }
   if (availBelow >= 96 || availBelow >= availAbove) {
     style.top = `${rect.bottom / unit}px`;
@@ -291,6 +320,9 @@ onUnmounted(() => {
   color: #23262b;
   cursor: pointer;
   white-space: nowrap;
+  /* 浮层被面板边界钳制后，超长选项在自身宽度内省略，避免横向滚动条 */
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .ss-opt:hover {

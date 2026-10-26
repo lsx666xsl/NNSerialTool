@@ -20,6 +20,8 @@ description: NNSerialTool 命令行工具——读取串口/TCP/UDP 设备日志
 - `nn udp --port 9000 -w -n 50` — UDP 接收
 - `nn version [--json]` — 查看 nn / 应用 / NN-Wave 协议版本
 - `nn check-update [--json]` — 检查是否有新版本（退出码 0=最新，10=有更新，4=检查失败）
+- `nn examples` — 查看常用命令示例（串口/TCP/UDP/HEX/自动采集）
+- `nn help [子命令]` — 查看某个子命令的参数与示例（用法中 `<必选>` / `[可选]` 有标记）
 - `nn install-skill` — 重装本 SKILL 文件到 ~/.agents/skills/nn/
 
 ## 退出码
@@ -28,6 +30,7 @@ description: NNSerialTool 命令行工具——读取串口/TCP/UDP 设备日志
 
 ## 注意
 
+- 参数标记：`<必选>` 必须填写，`[可选]` 可省略；不确定时先跑 `nn examples` 或 `nn help <子命令>`
 - Windows 串口独占：GUI 打开同一端口时 nn 打不开——先在界面断开连接
 - 数据只在 stdout；连接状态/丢帧统计在 stderr——重定向时只取 stdout 即为纯数据
 - 通道颜色/波形显示等界面功能在 NNSerialTool 主程序的波形视图中（市场插件）

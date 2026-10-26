@@ -61,6 +61,10 @@ fn print_usage() {
                                           收 UDP 日志
   nn version [--json]                     打印版本（nn / 应用 / NN-Wave 协议）
   nn check-update [--json]                检查是否有新版本（0=最新，10=有更新，4=检查失败）
+  nn examples                             查看常用命令示例（串口/TCP/UDP/HEX/自动采集）
+  nn help [子命令]                        查看某个子命令的完整参数与示例
+
+参数标记: <必选> 为必须填写，[可选] 可省略；例如 nn log -p COM3 -n 200 中 -p 必填、-n 可选。
 
 参数:
   -p / --port <口>       串口名（log/send 用：Windows COM3 / Linux /dev/ttyUSB0 /
@@ -583,7 +587,38 @@ fn cmd_install_skill() -> i32 {
     }
 }
 
-// 分命令详细帮助：nn help [log|send|tcp|udp|ports]
+// 分命令详细帮助：nn help [log|send|tcp|udp|ports|examples]
+fn cmd_examples() -> i32 {
+    println!(
+        "nn 常用命令示例
+================
+说明: <必选> 为必须填写，[可选] 可省略；完整参数用 nn help <子命令> 查看。
+
+串口:
+  nn ports                                     列出串口（含 USB vid/pid）
+  nn log -p COM3 -b 115200 -n 200               采集 200 行文本后退出
+  nn log -p COM3 -b 115200 -x -n 20             采集 20 行 HEX
+  nn log -p COM3 -b 115200 -w -t 10             采集 10 秒并解码 NN-Wave 为 CSV
+  nn log -p COM3 -b 115200 -o D:\\logs\\dev.log  同时落盘到指定文件
+  nn send -p COM3 -b 115200 -d \"AT\\r\\n\"       发送文本（换行符按需写）
+  nn send -p COM3 -b 115200 -x -d \"01 03 00 00\" 发送 HEX 字节
+
+网络:
+  nn tcp -H 192.168.1.10 --port 9000 -w -n 100  读 TCP 设备（NN-Wave 解码）
+  nn udp --port 9000 -w -n 50                   收 UDP 数据报
+
+其他:
+  nn version --json                             版本信息（JSON）
+  nn check-update                              检查更新（0=最新，10=有更新，4=失败）
+  nn install-skill                             重装 AI SKILL 文件
+
+提示:
+  - 串口被 GUI 占用时 nn 会打开失败：先在 NNSerialTool 里断开该端口
+  - 数据只写 stdout；状态/丢帧统计在 stderr，重定向时只取 stdout 即为纯数据"
+    );
+    EXIT_OK
+}
+
 fn cmd_help(topic: Option<&str>) -> i32 {
     match topic {
         Some("log") => println!(
@@ -591,6 +626,8 @@ fn cmd_help(topic: Option<&str>) -> i32 {
 
 用法:
   nn log -p COM3 [-b 115200] [过滤/格式参数]
+
+标记: <必选> 为必须填写，[可选] 可省略。
 
 参数:
   -p <口>        串口名
@@ -611,6 +648,8 @@ fn cmd_help(topic: Option<&str>) -> i32 {
 用法:
   nn send -p COM3 [-b 115200] -d <内容> [-x]
 
+标记: <必选> 为必须填写，[可选] 可省略。
+
 示例:
   nn send -p COM3 -d \"AT\\r\\n\"
   nn send -p COM3 -x -d \"01 03 00 00 00 02\""
@@ -621,6 +660,8 @@ fn cmd_help(topic: Option<&str>) -> i32 {
 用法:
   nn tcp -H <地址> --port <端口> [-w] [-x] [-n N] [-t 秒] [-o 文件]
 
+标记: <必选> 为必须填写，[可选] 可省略。
+
 示例:
   nn tcp -H 127.0.0.1 --port 9000 -w -n 100"
         ),
@@ -628,12 +669,15 @@ fn cmd_help(topic: Option<&str>) -> i32 {
             "nn udp —— 接收 UDP 数据报
 
 用法:
-  nn udp --port <本地端口> [-w] [-x] [-n N] [-t 秒]"
+  nn udp --port <本地端口> [-w] [-x] [-n N] [-t 秒]
+
+标记: <必选> 为必须填写，[可选] 可省略。"
         ),
+        Some("examples") | Some("example") => return cmd_examples(),
         Some("ports") | Some("version") | Some("check-update") | None => print_usage(),
         Some(other) => {
             println!(
-                "未知主题: {}（可选 log/send/tcp/udp/ports/version/check-update）",
+                "未知主题: {}（可选 log/send/tcp/udp/ports/version/check-update/examples）",
                 other
             );
             return EXIT_ARGS;
@@ -941,6 +985,7 @@ fn main() {
         Some("install-skill") => cmd_install_skill(),
         Some("version") => cmd_version(&args[1..]),
         Some("check-update") => cmd_check_update(&args[1..]),
+        Some("examples") | Some("example") | Some("--examples") => cmd_examples(),
         Some("log") => cmd_log(&args[1..]),
         Some("send") => cmd_send(&args[1..]),
         Some("tcp") => cmd_tcp(&args[1..]),
@@ -1003,6 +1048,8 @@ mod tests {
     fn skill_md_has_new_commands_and_valid_send_example() {
         assert!(SKILL_MD.contains("nn version"));
         assert!(SKILL_MD.contains("nn check-update"));
+        assert!(SKILL_MD.contains("nn examples"));
+        assert!(SKILL_MD.contains("nn help"));
         // 回归：历史版本这里曾把 \"AT 与真实换行写进 raw string，AI 读到的示例是坏的
         assert!(SKILL_MD.contains(r#"-d "AT\r\n""#));
         assert!(!SKILL_MD.contains("\"AT\n"));
