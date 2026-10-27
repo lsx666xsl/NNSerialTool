@@ -1,5 +1,8 @@
 {
   "bundle": {
-    "resources": ["target/release/nn", "resources/nn/SKILL.md"]
+    "resources": ["target/release/nn", "resources/nn/SKILL.md"],
+    "macOS": {
+      "signingIdentity": "-"
+    }
   }
 }

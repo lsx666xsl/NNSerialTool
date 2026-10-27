@@ -167,6 +167,19 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: npm run tauri build -- ${{ matrix.args }} --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
+      # macOS 安装诊断：确认 app 是“完整 bundle 签名”（不能只有 rustc 的 linker ad-hoc 签名），
+      # 否则下载后 Gatekeeper 会报 damaged / 无法验证。无 Apple 证书时使用 ad-hoc 签名。
+      - name: Inspect macOS signature
+        if: github.event_name == 'workflow_dispatch' && runner.os == 'macOS'
+        run: |
+          set -x
+          APP=$(find src-tauri/target -path '*/release/bundle/macos/NNSerialTool.app' -type d | head -1)
+          echo "APP=$APP"
+          test -n "$APP"
+          codesign -dv --verbose=4 "$APP" 2>&1 || true
+          codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 || true
+          spctl -a -vv "$APP" 2>&1 || true
+
       # TODO: pin to commit SHA（actions/upload-artifact@v4）
       - name: Upload verification artifacts
         if: github.event_name == 'workflow_dispatch'
