@@ -167,18 +167,25 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: npm run tauri build -- ${{ matrix.args }} --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
-      # macOS 安装诊断：确认 app 是“完整 bundle 签名”（不能只有 rustc 的 linker ad-hoc 签名），
-      # 否则下载后 Gatekeeper 会报 damaged / 无法验证。无 Apple 证书时使用 ad-hoc 签名。
+      # macOS 安装诊断：Tauri 打完 dmg 后会清理 .app 目录，必须从 dmg 里重新挂载检查。
+      # 期望：Identity "-" ad-hoc、codesign --verify --deep --strict 通过；
+      # 无 Apple 证书时 spctl 仍会拒绝（未公证），但不会再是“damaged/invalid signature”。
       - name: Inspect macOS signature
         if: github.event_name == 'workflow_dispatch' && runner.os == 'macOS'
         run: |
           set -x
-          APP=$(find src-tauri/target -path '*/release/bundle/macos/NNSerialTool.app' -type d | head -1)
+          DMG=$(find src-tauri/target -path '*/release/bundle/dmg/*.dmg' | head -1)
+          echo "DMG=$DMG"
+          test -n "$DMG"
+          ATTACH_OUT=$(hdiutil attach "$DMG" -nobrowse -readonly) || exit 1
+          MOUNT=$(echo "$ATTACH_OUT" | awk '/\/Volumes\//{print $NF; exit}')
+          APP=$(find "$MOUNT" -maxdepth 2 -name '*.app' -type d | head -1)
           echo "APP=$APP"
           test -n "$APP"
           codesign -dv --verbose=4 "$APP" 2>&1 || true
-          codesign --verify --deep --strict --verbose=2 "$APP" 2>&1 || true
+          codesign --verify --deep --strict --verbose=2 "$APP"
           spctl -a -vv "$APP" 2>&1 || true
+          hdiutil detach "$MOUNT" -force || true
 
       # TODO: pin to commit SHA（actions/upload-artifact@v4）
       - name: Upload verification artifacts
