@@ -31,9 +31,9 @@ jobs:
           curl -fL --retry 3 --max-time 120 -o "$DMG" "$URL"
           ls -lh "$DMG"
           echo '--- hdiutil verify ---'
-          timeout 60 hdiutil verify "$DMG" || true
+          hdiutil verify "$DMG" || true
 
-          ATTACH_OUT=$(timeout 60 hdiutil attach "$DMG" -nobrowse -readonly) || exit 1
+          ATTACH_OUT=$(hdiutil attach "$DMG" -nobrowse -readonly) || exit 1
           echo "$ATTACH_OUT"
           MOUNT=$(echo "$ATTACH_OUT" | awk '/\/Volumes\//{print $NF; exit}')
           echo "MOUNT=$MOUNT"
