@@ -1,7 +1,8 @@
 name: macOS install diagnose
 
 # 无本地 Mac 时，用 GitHub 的 macOS runner 当“安装环境”：
-# 下载 Release 的 dmg → 挂载 → 检查架构/最低系统/签名/公证/Gatekeeper → 模拟 quarantine 启动。
+# 下载 Release 的 dmg → 挂载 → 检查架构/最低系统/签名/公证/Gatekeeper。
+# 只做静态检查，不启动 GUI（启动会被 Gatekeeper 弹窗卡住）。
 on:
   workflow_dispatch:
     inputs:
@@ -21,19 +22,18 @@ jobs:
 
       - name: Download and inspect DMG
         env:
-          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
         run: |
           set -x
-          mkdir -p "$RUNNER_TEMP/dmg"
-          gh release download "${{ inputs.tag }}" \
-            --repo "${{ github.repository }}" \
-            --pattern '*aarch64.dmg' \
-            --dir "$RUNNER_TEMP/dmg"
-          DMG=$(find "$RUNNER_TEMP/dmg" -name '*.dmg' | head -1)
-          echo "DMG=$DMG"
-          hdiutil verify "$DMG"
+          VER="${TAG#v}"
+          DMG="$RUNNER_TEMP/NNSerialTool_${VER}_aarch64.dmg"
+          URL="https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/NNSerialTool_${VER}_aarch64.dmg"
+          curl -fL --retry 3 --max-time 120 -o "$DMG" "$URL"
+          ls -lh "$DMG"
+          echo '--- hdiutil verify ---'
+          timeout 60 hdiutil verify "$DMG" || true
 
-          ATTACH_OUT=$(hdiutil attach "$DMG" -nobrowse -readonly)
+          ATTACH_OUT=$(timeout 60 hdiutil attach "$DMG" -nobrowse -readonly) || exit 1
           echo "$ATTACH_OUT"
           MOUNT=$(echo "$ATTACH_OUT" | awk '/\/Volumes\//{print $NF; exit}')
           echo "MOUNT=$MOUNT"
@@ -42,7 +42,7 @@ jobs:
           test -n "$APP"
 
           echo '--- bundle ---'
-          du -sh "$APP"
+          du -sh "$APP" || true
           echo '--- arch ---'
           file "$APP/Contents/MacOS/serialtool" || true
           lipo -info "$APP/Contents/MacOS/serialtool" || true
@@ -56,13 +56,10 @@ jobs:
           echo '--- quarantine ---'
           xattr -lr "$APP" 2>&1 | head -80 || true
 
-          echo '--- simulate downloaded app ---'
+          echo '--- simulate downloaded app (no launch) ---'
           mkdir -p "$RUNNER_TEMP/Applications"
           ditto "$APP" "$RUNNER_TEMP/Applications/NNSerialTool.app"
           xattr -w com.apple.quarantine "0081;00000000;Safari;" "$RUNNER_TEMP/Applications/NNSerialTool.app" || true
           spctl -a -vv "$RUNNER_TEMP/Applications/NNSerialTool.app" 2>&1 || true
-          open "$RUNNER_TEMP/Applications/NNSerialTool.app" 2>&1 || true
-          sleep 5
-          pgrep -fl 'NNSerialTool|serialtool' || true
 
           hdiutil detach "$MOUNT" -force || true
