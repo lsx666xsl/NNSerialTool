@@ -79,7 +79,9 @@ fn print_usage() {
   -w / --nnwave          按 NN-Wave 协议解码为 CSV: t_ms,ch1,ch2,...
                          （解码为 nn 内置，无需安装波形插件）
   -d / --data <内容>     发送内容（--hex 时为 HEX 字符串）
-  -o / --out <文件>      日志文件路径（默认 exe 同级 NNlog/<来源>-<时间戳>.log，自动创建目录）
+  -o / --out <路径>      日志落盘路径：给目录则自动生成 <端口>-<时间戳>.log；
+                         给 .log 等文件路径则原样写入；目录不存在会自动创建
+                         （默认 exe 同级 NNlog/<来源>-<时间戳>.log）
   --json                 仅 version / check-update 使用：输出机器可读 JSON
 
 退出码: 0 成功 / 2 参数错误 / 3 打开失败 / 4 检查更新失败 / 10 有新版本"
@@ -341,15 +343,36 @@ fn nnwave_crc8(data: &[u8]) -> u8 {
     crc
 }
 
-// ---------- 日志文件路径：--out 优先，否则 exe 同级 NNlog/<来源>-<时间戳>.log ----------
-fn resolve_log_path(o: &Opts, source: &str) -> Result<PathBuf, String> {
-    if let Some(p) = &o.out {
-        let path = PathBuf::from(p);
-        if let Some(parent) = path.parent() {
+// ---------- 日志文件路径：--out 优先，否则 exe 同级 NNlog/<端口>-<时间戳>.log ----------
+// --out 的两种语义：
+//   1) 目录（已存在的目录 / 以路径分隔符结尾 / 不存在且没有扩展名）：
+//      在目录内自动生成 <来源>-<时间戳>.log，目录不存在会自动创建；
+//   2) 文件（带扩展名或已存在的文件）：原样写入该文件，父目录不存在会自动创建。
+fn resolve_out_path(raw: &str, generated_name: &str) -> Result<PathBuf, String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err("--out 不能为空".into());
+    }
+    let path = PathBuf::from(raw);
+    let trailing_sep = raw.ends_with('/')
+        || raw.ends_with('\\')
+        || raw.ends_with(std::path::MAIN_SEPARATOR);
+    // 无扩展名且不存在时按目录处理：用户给 D:\logs\new 这类路径时直接创建目录，
+    // 往里面写自动命名的文件；要精确文件路径请写 D:\logs\new.log。
+    let dir_intent = path.is_dir() || trailing_sep || (!path.exists() && path.extension().is_none());
+    if dir_intent {
+        fs::create_dir_all(&path).map_err(|e| format!("创建日志目录失败: {}", e))?;
+        return Ok(path.join(generated_name));
+    }
+    if let Some(parent) = path.parent() {
+        if !parent.as_os_str().is_empty() {
             fs::create_dir_all(parent).map_err(|e| format!("创建日志目录失败: {}", e))?;
         }
-        return Ok(path);
     }
+    Ok(path)
+}
+
+fn resolve_log_path(o: &Opts, source: &str) -> Result<PathBuf, String> {
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_err(|e| e.to_string())?
@@ -365,6 +388,9 @@ fn resolve_log_path(o: &Opts, source: &str) -> Result<PathBuf, String> {
         })
         .collect();
     let name = format!("{}-{}.log", safe, ts);
+    if let Some(p) = &o.out {
+        return resolve_out_path(p, &name);
+    }
     // 首选 exe 同级 NNlog/；不可写（AppImage 只读挂载 / Linux 系统目录无权限）则回退 ~/NNlog/
     if let Ok(exe) = std::env::current_exe() {
         if let Some(parent) = exe.parent() {
@@ -590,7 +616,7 @@ fn cmd_install_skill() -> i32 {
     }
 }
 
-// 分命令详细帮助：nn help [log|send|tcp|udp|ports|examples]
+// 分命令详细帮助：nn help [log|send|tcp|udp|ports|examples|install-skill]
 fn cmd_examples() -> i32 {
     println!(
         "nn 常用命令示例
@@ -602,7 +628,8 @@ fn cmd_examples() -> i32 {
   nn log -p COM3 -b 115200 -n 200               采集 200 行文本后退出
   nn log -p COM3 -b 115200 -x -n 20             采集 20 行 HEX
   nn log -p COM3 -b 115200 -w -t 10             采集 10 秒并解码 NN-Wave 为 CSV
-  nn log -p COM3 -b 115200 -o D:\\logs\\dev.log  同时落盘到指定文件
+  nn log -p COM3 -b 115200 -o D:\\logs\\         目录：自动生成 COM3-<时间戳>.log
+  nn log -p COM3 -b 115200 -o D:\\logs\\dev.log  文件：原样写入指定文件
   nn send -p COM3 -b 115200 -d \"AT\\r\\n\"       发送文本（换行符按需写）
   nn send -p COM3 -b 115200 -x -d \"01 03 00 00\" 发送 HEX 字节
 
@@ -639,7 +666,8 @@ fn cmd_help(topic: Option<&str>) -> i32 {
   -t <秒>        采集 N 秒退出
   -w             NN-Wave 解码为 CSV: t_ms,ch1,ch2,...（内置解码，无需波形插件）
   -x             十六进制输出原始字节
-  -o <文件>      日志落盘路径（默认 exe 同级 NNlog/<来源>-<时间戳>.log）
+  -o <路径>      日志落盘路径：目录（不存在会自动创建）内自动生成
+                 <端口>-<时间戳>.log；带扩展名的文件路径则原样写入
 
 示例:
   nn log -p COM3 -w -t 10        采集 10 秒并解码为 CSV
@@ -752,7 +780,7 @@ fn cmd_log(args: &[String]) -> i32 {
             return EXIT_ARGS;
         }
     };
-    let log_path = match resolve_log_path(&o, &format!("{}-{}", o.port, o.baud)) {
+    let log_path = match resolve_log_path(&o, &o.port) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{}", e);
@@ -872,7 +900,7 @@ fn cmd_tcp(args: &[String]) -> i32 {
         eprintln!("参数错误: 需要 --port");
         return EXIT_ARGS;
     }
-    let log_path = match resolve_log_path(&o, &format!("{}-{}", o.host, o.tcp_port)) {
+    let log_path = match resolve_log_path(&o, &format!("tcp-{}", o.tcp_port)) {
         Ok(p) => p,
         Err(e) => {
             eprintln!("{}", e);
@@ -1066,5 +1094,58 @@ mod tests {
         // 回归：历史版本这里曾把 \"AT 与真实换行写进 raw string，AI 读到的示例是坏的
         assert!(SKILL_MD.contains(r#"-d "AT\r\n""#));
         assert!(!SKILL_MD.contains("\"AT\n"));
+    }
+
+    fn temp_test_dir(tag: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        std::env::temp_dir().join(format!("nn-log-test-{}-{}", tag, stamp))
+    }
+
+    #[test]
+    fn out_existing_directory_gets_generated_file_name() {
+        let dir = temp_test_dir("existing");
+        fs::create_dir_all(&dir).unwrap();
+        let path = resolve_out_path(dir.to_str().unwrap(), "COM3-123.log").unwrap();
+        assert_eq!(path.parent(), Some(dir.as_path()));
+        assert_eq!(path.file_name().unwrap(), "COM3-123.log");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn out_missing_directory_without_extension_is_created() {
+        let dir = temp_test_dir("newdir");
+        assert!(!dir.exists());
+        let path = resolve_out_path(dir.to_str().unwrap(), "COM3-123.log").unwrap();
+        assert!(dir.is_dir());
+        assert_eq!(path, dir.join("COM3-123.log"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn out_file_path_kept_and_parent_created() {
+        let base = temp_test_dir("file");
+        let file = base.join("nested").join("my.log");
+        let path = resolve_out_path(file.to_str().unwrap(), "ignored.log").unwrap();
+        assert_eq!(path, file);
+        assert!(path.parent().unwrap().is_dir());
+        fs::remove_dir_all(&base).ok();
+    }
+
+    #[test]
+    fn out_trailing_separator_is_directory() {
+        let dir = temp_test_dir("trailing");
+        let raw = format!("{}{}", dir.display(), std::path::MAIN_SEPARATOR);
+        let path = resolve_out_path(&raw, "UDP-9000-1.log").unwrap();
+        assert!(dir.is_dir());
+        assert_eq!(path, dir.join("UDP-9000-1.log"));
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn out_empty_rejected() {
+        assert!(resolve_out_path("   ", "x.log").is_err());
     }
 }

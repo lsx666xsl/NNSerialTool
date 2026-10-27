@@ -14,7 +14,8 @@ description: NNSerialTool 命令行工具——读取串口/TCP/UDP 设备日志
 - `nn log -p COM3 -b 115200 -t 10` — 采集 10 秒
 - `nn log -p COM3 -b 115200 -w -t 10` — NN-Wave 解码为 CSV（t_ms,ch1,ch2,...），无需安装波形插件
 - `nn log -p COM3 -b 115200 -x -n 20` — HEX 字节流
-- `nn log ... -o D:\path\device.log` — 同步落盘到指定文件
+- `nn log ... -o D:\path\` — 目录：自动生成 `COM3-<时间戳>.log`，目录不存在会创建
+- `nn log ... -o D:\path\device.log` — 文件：原样写入该文件（父目录不存在会创建）
 - `nn send -p COM3 -b 115200 -d "AT\r\n"` — 发送文本（-x 为 HEX 字节）
 - `nn tcp --host 192.168.1.10 --port 9000 -w -n 100` — TCP 设备
 - `nn udp --port 9000 -w -n 50` — UDP 接收
@@ -31,6 +32,7 @@ description: NNSerialTool 命令行工具——读取串口/TCP/UDP 设备日志
 ## 注意
 
 - 参数标记：`<必选>` 必须填写，`[可选]` 可省略；不确定时先跑 `nn examples` 或 `nn help <子命令>`
+- `-o/--out`：目录（已存在、以分隔符结尾、或无扩展名的不存在路径）→ 自动命名 `<端口>-<时间戳>.log`；带扩展名的文件路径 → 原样写入；两种都会自动创建缺失目录
 - Windows 串口独占：GUI 打开同一端口时 nn 打不开——先在界面断开连接
 - 数据只在 stdout；连接状态/丢帧统计在 stderr——重定向时只取 stdout 即为纯数据
 - 通道颜色/波形显示等界面功能在 NNSerialTool 主程序的波形视图中（市场插件）
