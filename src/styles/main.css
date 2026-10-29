@@ -279,8 +279,9 @@ label {
 
 .form-row {
   display: grid;
-  /* 默认两列：label + 控件，控件右缘与其他元素对齐（避免空列 gap 造成缩进） */
-  grid-template-columns: 64px 1fr;
+  /* 默认两列：label + 控件，控件右缘与其他元素对齐（避免空列 gap 造成缩进）
+     中间列用 minmax(0,1fr)：长串口名/长标签不会把表单撑出面板。 */
+  grid-template-columns: 64px minmax(0, 1fr);
   align-items: center;
   gap: 8px;
   margin-top: 10px;
@@ -288,11 +289,11 @@ label {
 
 /* 含第三个子元素（如波特率行的 + 按钮）时启用第三列 */
 .form-row:has(> :nth-child(3)) {
-  grid-template-columns: 64px 1fr auto;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
 }
 
 .form-row.compact-row {
-  grid-template-columns: 64px 1fr;
+  grid-template-columns: 64px minmax(0, 1fr);
 }
 
 /* ============ 按钮 ============ */

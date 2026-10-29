@@ -264,6 +264,7 @@ onUnmounted(() => {
 
 .self-select.full {
   width: 100%;
+  min-width: 0;
 }
 
 .self-select.open,
@@ -284,6 +285,8 @@ onUnmounted(() => {
 }
 
 .ss-label {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
