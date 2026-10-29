@@ -1,20 +1,21 @@
 <script setup lang="ts">
 import { computed, onActivated, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { SessionMessage } from '../types';
-import { autoScroll, fontSize, showMessageMeta } from '../stores/appStore';
+import { fontSize, showMessageMeta } from '../stores/appStore';
 import { bytesToHex } from '../utils/format';
 import { splitLogTags, type LogSeg } from '../utils/logLevel';
 
 // 流式消息区：详情视图与分屏视图共用。
 // 时间戳与 RX/TX 是"前缀标签"，仅作显示；工具栏的「标签」总开关可一次性隐藏全部标签
-//（不影响接收、方向过滤与消息内容）。自动滚动（默认关闭，工具栏手动勾选）：勾选后只要有新消息就滚到最底下；
-// “↓ 最新”按钮仅在「内容溢出出现滚动条 且 不在底部」时动态出现。
+//（不影响接收、方向过滤与消息内容）。自动滚动是每个会话自己的开关（由父组件传入），
+// 勾选后只要有新消息就滚到最底下；“↓ 最新”按钮仅在「内容溢出出现滚动条 且 不在底部」时动态出现。
 // 支持 Ctrl+滚轮实时调整字号（11-22）。
 const props = defineProps<{
   messages: SessionMessage[];
   filterRx: boolean;
   filterTx: boolean;
   hexMode: boolean;
+  autoScroll: boolean;
 }>();
 
 // 方向过滤（入队时打标，不补显示）：RX/TX 关闭期间收到的行整行隐藏（数据照常接收与计数，
@@ -89,7 +90,7 @@ watch(
   () => {
     const el = flowEl.value;
     if (!el) return;
-    if (autoScroll.value) el.scrollTop = el.scrollHeight;
+    if (props.autoScroll) el.scrollTop = el.scrollHeight;
     updateScrollState();
   },
   { flush: 'post' }
@@ -106,7 +107,7 @@ onUnmounted(() => resizeObserver?.disconnect());
 // KeepAlive 切回：缓存期间数据持续入缓冲，重新激活时若开启自动滚动则贴底，并刷新“↓ 最新”显隐
 // （否则切回后停在旧滚动位置，底部按钮状态也停留在一帧前）
 onActivated(() => {
-  if (autoScroll.value) scrollToBottom();
+  if (props.autoScroll) scrollToBottom();
   else updateScrollState();
 });
 </script>

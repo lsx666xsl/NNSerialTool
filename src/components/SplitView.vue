@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import MessageFlow from './MessageFlow.vue';
 import {
-  autoScroll,
   clearSessionReceive,
   closeConnection,
   cycleNewline,
@@ -61,14 +60,15 @@ const isLooping = (session: import('../types').ConnectionSession) =>
           :filter-rx="session.filterRx ?? true"
           :filter-tx="session.filterTx ?? true"
           :hex-mode="session.hexMode ?? false"
+          :auto-scroll="session.autoScroll ?? false"
         />
         <!-- 紧凑工具带：顺序与单屏一致（自动滚动 / 自动换行 / 自动发送+间隔 / 标签 / TX HEX / RX HEX / 导出 / 清空；无拓展命令） -->
         <div class="split-toolbar">
           <button
             class="mini-toggle"
-            :class="{ on: autoScroll }"
-            title="新消息到达时自动滚动到底部"
-            @click="autoScroll = !autoScroll"
+            :class="{ on: session.autoScroll ?? false }"
+            title="新消息到达时自动滚动到底部（本面板独立控制）"
+            @click="session.autoScroll = !(session.autoScroll ?? false)"
           >
             自动滚动
           </button>

@@ -81,11 +81,8 @@ watch(showMessageMeta, (v) => writeStorage('st-show-meta', v));
 // 左侧连接面板折叠状态：App 控制布局，DetailView/SplitView 用它决定是否把 RX/TX 过滤按钮放进工具带
 export const sidebarCollapsed = ref(readStorageChecked<boolean>('st-sidebar-collapsed', false, isBoolean));
 watch(sidebarCollapsed, (v) => writeStorage('st-sidebar-collapsed', v));
-// 自动滚动默认关闭（安全默认：自动发送/高频模式下用户自己控制是否跟随）
-export const autoScroll = ref(readStorageChecked<boolean>('st-autoscroll', false, isBoolean));
-watch(autoScroll, (v) => writeStorage('st-autoscroll', v));
-// 启动时强制关闭自动滚动（安全默认：不跨启动保留，用户需要时手动勾选）
-autoScroll.value = false;
+// 自动滚动由每个 ConnectionSession.autoScroll 独立控制（默认关闭，安全默认：
+// 自动发送/高频模式下用户自己控制是否跟随）；不再维护全局开关。
 // 消息流字号（Ctrl+滚轮可在接收区实时调整，范围 11-22）：非法存储值回退 12 并夹取到合法区间
 export const fontSize = ref(
   Math.min(22, Math.max(11, Math.round(readStorageChecked<number>('st-font-size', 12, isFiniteNumber))))
@@ -580,6 +577,7 @@ export const createSession = () => {
         statusMsg: '已创建，等待打开',
         filterRx: true,
         filterTx: true,
+        autoScroll: false,
       }
     : {
         id: `net-${newSessionType.value}-${Date.now()}`,
@@ -596,6 +594,7 @@ export const createSession = () => {
         statusMsg: '已创建，等待打开',
         filterRx: true,
         filterTx: true,
+        autoScroll: false,
       };
 
   crumb('session create ' + session.name);

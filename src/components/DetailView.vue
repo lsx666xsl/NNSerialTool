@@ -4,7 +4,6 @@ import MessageFlow from './MessageFlow.vue';
 import {
   activeSession,
   addQuickCommand,
-  autoScroll,
   clearSessionReceive,
   closeConnection,
   cycleNewline,
@@ -142,6 +141,7 @@ const onResizeHandleDown = (e: PointerEvent) => {
             :filter-rx="activeSession.filterRx ?? true"
             :filter-tx="activeSession.filterTx ?? true"
             :hex-mode="activeSession.hexMode ?? false"
+            :auto-scroll="activeSession.autoScroll ?? false"
           />
 
           <!-- 工具带：顶部虚线即拖拽热区（按住上下拖调整发送框高度，与接收框互斥）；
@@ -150,9 +150,9 @@ const onResizeHandleDown = (e: PointerEvent) => {
             <div class="toolbar-drag" title="上下拖动调整发送框高度" @pointerdown="onResizeHandleDown"></div>
             <button
               class="tb-toggle"
-              :class="{ on: autoScroll }"
-              title="新消息到达时自动滚动到底部（向上翻看时自动暂停）"
-              @click="autoScroll = !autoScroll"
+              :class="{ on: activeSession.autoScroll ?? false }"
+              title="新消息到达时自动滚动到底部（每个会话独立；向上翻看时自动暂停）"
+              @click="activeSession.autoScroll = !(activeSession.autoScroll ?? false)"
             >
               自动滚动
             </button>

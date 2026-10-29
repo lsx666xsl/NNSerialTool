@@ -71,9 +71,11 @@ export type ConnectionSession = {
   inBus?: boolean;
   // 是否已提示过“消息达上限被裁剪”，避免重复刷屏
   warnedOverflow?: boolean;
-  // RX/TX 为独立的方向过滤开关（只看收/只看发/都看）；时间戳/方向字符由工具带「标签」开关控制
+  // 收发显示/跟随开关：每个会话独立，不再由全局工具带统一控制
   filterRx?: boolean;
   filterTx?: boolean;
+  // 新消息到达时是否自动滚到底部（每个会话独立）
+  autoScroll?: boolean;
   // 十六进制显示模式：亮起后收发数据以 HEX 字节流显示（默认字符串）
   hexMode?: boolean;
   // 发送框十六进制模式：输入内容按 HEX 解析后以原始字节发送（默认字符串模式）
