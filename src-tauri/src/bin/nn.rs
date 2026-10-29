@@ -28,6 +28,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Write};
 use std::net::{TcpStream, ToSocketAddrs, UdpSocket};
 use std::path::PathBuf;
+use chrono::Local;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const EXIT_OK: i32 = 0;
@@ -82,6 +83,8 @@ fn print_usage() {
   -o / --out <路径>      日志落盘路径：给目录则自动生成 <端口>-<时间戳>.log；
                          给 .log 等文件路径则原样写入；目录不存在会自动创建
                          （默认 exe 同级 NNlog/<来源>-<时间戳>.log）
+  --timestamp            每行输出前加 [YYYY-MM-DD HH:mm:ss]（默认开启）
+  --no-timestamp         关闭时间戳前缀（CSV/AI 机器读取时建议使用）
   --json                 仅 version / check-update 使用：输出机器可读 JSON
 
 退出码: 0 成功 / 2 参数错误 / 3 打开失败 / 4 检查更新失败 / 10 有新版本"
@@ -99,6 +102,7 @@ struct Opts {
     tcp_port: u16,
     data: String,
     out: Option<String>,
+    timestamp: bool,
 }
 
 fn parse_opts(args: &[String]) -> Result<Opts, String> {
@@ -113,6 +117,7 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
         tcp_port: 0,
         data: String::new(),
         out: None,
+        timestamp: true,
     };
     let mut i = 0;
     while i < args.len() {
@@ -145,6 +150,8 @@ fn parse_opts(args: &[String]) -> Result<Opts, String> {
             "-o" | "--out" => o.out = Some(take_value(&mut i, "-o")?),
             "-x" | "--hex" => o.hex = true,
             "-w" | "--nnwave" => o.nnwave = true,
+            "--timestamp" => o.timestamp = true,
+            "--no-timestamp" => o.timestamp = false,
             other => return Err(format!("未知参数: {}", other)),
         }
         i += 1;
@@ -168,6 +175,8 @@ enum SinkKind {
 struct Sink {
     kind: SinkKind,
     log: Option<File>,
+    // 文本/HEX/CSV 每行前缀时间戳；默认开，--no-timestamp 关闭
+    timestamp: bool,
     // 日志写入失败只提示一次，避免刷屏（但绝不静默吞掉首次错误）
     log_warned: bool,
 }
@@ -199,6 +208,7 @@ impl Sink {
         Sink {
             kind,
             log,
+            timestamp: o.timestamp,
             log_warned: false,
         }
     }
@@ -305,9 +315,16 @@ impl Sink {
             }
         };
         for text in &texts {
-            println!("{}", text);
+            // 时间戳统一为本地时间 `YYYY-MM-DD HH:mm:ss`；默认开启。
+            // 机器可读场景（尤其 --nnwave CSV）可用 --no-timestamp 关闭。
+            let line = if self.timestamp {
+                format!("[{}] {}", Local::now().format("%Y-%m-%d %H:%M:%S"), text)
+            } else {
+                text.clone()
+            };
+            println!("{}", line);
             if let Some(f) = &mut self.log {
-                if let Err(e) = writeln!(f, "{}", text) {
+                if let Err(e) = writeln!(f, "{}", line) {
                     if !self.log_warned {
                         self.log_warned = true;
                         eprintln!("[nn] 警告: 日志写入失败（{}），后续仅输出到 stdout", e);
@@ -630,6 +647,7 @@ fn cmd_examples() -> i32 {
   nn log -p COM3 -b 115200 -w -t 10             采集 10 秒并解码 NN-Wave 为 CSV
   nn log -p COM3 -b 115200 -o D:\\logs\\         目录：自动生成 COM3-<时间戳>.log
   nn log -p COM3 -b 115200 -o D:\\logs\\dev.log  文件：原样写入指定文件
+  nn log -p COM3 -b 115200 --no-timestamp        关闭行首时间戳
   nn send -p COM3 -b 115200 -d \"AT\\r\\n\"       发送文本（换行符按需写）
   nn send -p COM3 -b 115200 -x -d \"01 03 00 00\" 发送 HEX 字节
 
@@ -643,6 +661,7 @@ fn cmd_examples() -> i32 {
   nn install-skill                             重装 AI SKILL 文件
 
 提示:
+  - 默认每行带 [YYYY-MM-DD HH:mm:ss] 本地时间戳；--no-timestamp 关闭（CSV/AI 管道建议）
   - 串口被 GUI 占用时 nn 会打开失败：先在 NNSerialTool 里断开该端口
   - 数据只写 stdout；状态/丢帧统计在 stderr，重定向时只取 stdout 即为纯数据"
     );
@@ -668,6 +687,8 @@ fn cmd_help(topic: Option<&str>) -> i32 {
   -x             十六进制输出原始字节
   -o <路径>      日志落盘路径：目录（不存在会自动创建）内自动生成
                  <端口>-<时间戳>.log；带扩展名的文件路径则原样写入
+  --timestamp    默认开启：[YYYY-MM-DD HH:mm:ss] 前缀
+  --no-timestamp 关闭时间戳（--nnwave CSV / AI 管道建议）
 
 示例:
   nn log -p COM3 -w -t 10        采集 10 秒并解码为 CSV
@@ -1147,5 +1168,13 @@ mod tests {
     #[test]
     fn out_empty_rejected() {
         assert!(resolve_out_path("   ", "x.log").is_err());
+    }
+
+    #[test]
+    fn timestamp_default_and_flags() {
+        assert!(parse_opts(&[]).unwrap().timestamp);
+        assert!(!parse_opts(&["--no-timestamp".to_string()]).unwrap().timestamp);
+        assert!(parse_opts(&["--timestamp".to_string()]).unwrap().timestamp);
+        assert!(parse_opts(&["--no-timestamp".to_string(), "--timestamp".to_string()]).unwrap().timestamp);
     }
 }

@@ -37,6 +37,22 @@ const entries = computed(() => {
               d="M0 16 C 10 2, 20 2, 30 16 S 50 30, 60 16 S 80 2, 90 16 S 110 30, 120 16"
             />
           </svg>
+          <!-- 音视频解析：文件卡片 + 码流曲线 + HEX 片段 -->
+          <svg v-else-if="mode.key === 'plugin-av-inspect-av'" class="mini-av" viewBox="0 0 120 32" preserveAspectRatio="none">
+            <rect x="4" y="5" width="33" height="22" rx="3" class="av-file" />
+            <path d="M28 5 v7 h9" class="av-fold" />
+            <line x1="9" y1="16" x2="31" y2="16" class="av-line" />
+            <line x1="9" y1="20" x2="25" y2="20" class="av-line" />
+            <line x1="9" y1="24" x2="29" y2="24" class="av-line" />
+            <line x1="44" y1="7" x2="116" y2="7" class="av-grid" />
+            <line x1="44" y1="15" x2="116" y2="15" class="av-grid" />
+            <line x1="44" y1="23" x2="116" y2="23" class="av-grid" />
+            <path class="av-wave" d="M44 15 C 49 7, 54 7, 59 15 S 69 23, 74 15 S 84 7, 89 15 S 99 23, 104 15 S 112 7, 116 12" />
+            <rect x="44" y="26" width="10" height="3" rx="1" class="av-hex" />
+            <rect x="57" y="26" width="16" height="3" rx="1" class="av-hex" />
+            <rect x="76" y="26" width="8" height="3" rx="1" class="av-hex" />
+            <rect x="87" y="26" width="24" height="3" rx="1" class="av-hex" />
+          </svg>
           <!-- 转发：数据包从源会话流向目标会话 -->
           <svg v-else-if="mode.key === 'forward'" class="mini-forward-svg" viewBox="0 0 120 32">
             <rect x="6" y="9" width="26" height="14" rx="3" class="node" />
@@ -187,10 +203,49 @@ const entries = computed(() => {
 
 /* 转发：源 → 目标（SVG 示意，数据包沿连线流动） */
 .mini-forward-svg,
-.mini-wave {
+.mini-wave,
+.mini-av {
   display: block;
   width: 100%;
   height: 30px;
+}
+
+/* 音视频解析：文件卡片 + 波形 + HEX 片段 */
+.mini-av .av-file {
+  fill: rgba(59, 111, 212, 0.1);
+  stroke: #3b6fd4;
+  stroke-width: 1.2;
+}
+
+.mini-av .av-fold {
+  fill: none;
+  stroke: #3b6fd4;
+  stroke-width: 1.2;
+  opacity: 0.7;
+}
+
+.mini-av .av-line {
+  stroke: rgba(59, 111, 212, 0.35);
+  stroke-width: 1.2;
+  stroke-linecap: round;
+}
+
+.mini-av .av-grid {
+  stroke: rgba(23, 26, 33, 0.14);
+  stroke-width: 1;
+}
+
+.mini-av .av-wave {
+  fill: none;
+  stroke: #3b6fd4;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-dasharray: 8 4;
+  animation: miniWaveFlow 1s linear infinite;
+}
+
+.mini-av .av-hex {
+  fill: rgba(59, 111, 212, 0.3);
 }
 
 .mini-wave .grid {
@@ -306,6 +361,25 @@ const entries = computed(() => {
 .theme-dark .mini-forward-svg .node {
   fill: rgba(87, 157, 245, 0.22);
   stroke: #6ca7e8;
+}
+
+.theme-dark .mini-av .av-file {
+  fill: rgba(87, 157, 245, 0.16);
+  stroke: #6ca7e8;
+}
+
+.theme-dark .mini-av .av-fold,
+.theme-dark .mini-av .av-line,
+.theme-dark .mini-av .av-wave {
+  stroke: #6ca7e8;
+}
+
+.theme-dark .mini-av .av-grid {
+  stroke: rgba(255, 255, 255, 0.16);
+}
+
+.theme-dark .mini-av .av-hex {
+  fill: rgba(108, 167, 232, 0.35);
 }
 
 .theme-dark .mini-forward-svg .wire {

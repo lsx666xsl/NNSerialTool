@@ -3503,6 +3503,7 @@ dependencies = [
 name = "serialtool"
 version = "0.6.9"
 dependencies = [
+ "chrono",
  "font-kit",
  "if-addrs",
  "reqwest",

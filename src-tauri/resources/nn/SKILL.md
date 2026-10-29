@@ -10,7 +10,8 @@ description: NNSerialTool 命令行工具——读取串口/TCP/UDP 设备日志
 ## 命令速查
 
 - `nn ports` — 列出串口（含 USB vid/pid）
-- `nn log -p COM3 -b 115200 -n 200` — 读 200 行设备输出后退出
+- `nn log -p COM3 -b 115200 -n 200` — 读 200 行设备输出后退出（默认每行带 `[YYYY-MM-DD HH:mm:ss]` 时间戳）
+- `nn log -p COM3 -b 115200 --no-timestamp -n 200` — 关闭时间戳，输出纯数据
 - `nn log -p COM3 -b 115200 -t 10` — 采集 10 秒
 - `nn log -p COM3 -b 115200 -w -t 10` — NN-Wave 解码为 CSV（t_ms,ch1,ch2,...），无需安装波形插件
 - `nn log -p COM3 -b 115200 -x -n 20` — HEX 字节流
@@ -32,6 +33,7 @@ description: NNSerialTool 命令行工具——读取串口/TCP/UDP 设备日志
 ## 注意
 
 - 参数标记：`<必选>` 必须填写，`[可选]` 可省略；不确定时先跑 `nn examples` 或 `nn help <子命令>`
+- 时间戳：`--timestamp` 默认开启（本地时间 `YYYY-MM-DD HH:mm:ss`，带 `[]`）；`--no-timestamp` 关闭，适合 CSV/AI 管道
 - `-o/--out`：目录（已存在、以分隔符结尾、或无扩展名的不存在路径）→ 自动命名 `<端口>-<时间戳>.log`；带扩展名的文件路径 → 原样写入；两种都会自动创建缺失目录
 - Windows 串口独占：GUI 打开同一端口时 nn 打不开——先在界面断开连接
 - 数据只在 stdout；连接状态/丢帧统计在 stderr——重定向时只取 stdout 即为纯数据

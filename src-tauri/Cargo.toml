@@ -31,6 +31,7 @@ tauri-plugin-process = "2" # 更新安装后自动重启
 serialport = "4.9.0"
 serde = "1.0.228"
 serde_json = "1" # generate_context! 宏解析 tauri.conf.json plugins 配置所需
+chrono = { version = "0.4", default-features = false, features = ["clock"] } # nn 日志本地时间戳
 if-addrs = "0.13"
 font-kit = "0.14" # 枚举 Windows 已安装字体（DirectWrite），设置字体下拉数据源
 # nn CLI 检查更新（check-update）：阻塞 HTTP + rustls。
