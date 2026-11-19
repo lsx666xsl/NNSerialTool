@@ -11,6 +11,17 @@ use fonts::*;
 use net::*;
 use serial::*;
 
+/*
+*   描述：当前 epoch 毫秒。数据收发事件用它带上“到达时间”，
+*         前端据此显示时间戳——不受合帧/后台节流导致的显示延迟影响。
+*/
+pub(crate) fn now_epoch_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 // ============ Tauri 应用入口 ============
 // #[cfg_attr(mobile, ...)] 是条件编译：
 //   - 桌面端（Windows/macOS/Linux）：这行不起作用，run 就是普通函数

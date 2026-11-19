@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { appliedTheme } from '../stores/appStore';
+import { appliedTheme, notify } from '../stores/appStore';
 import {
   changelog,
   currentVersion,
@@ -162,8 +162,7 @@ const cancelUpdate = async () => {
 };
 
 const notifyCancelled = () => {
-  // 通过 appStore 的 notify 提示取消结果（避免循环依赖，动态引入）
-  void import('../stores/appStore').then(({ notify }) => notify('更新已取消，已清理下载内容，可重新点击「更新」重试'));
+  notify('更新已取消，已清理下载内容，可重新点击「更新」重试');
 };
 </script>
 

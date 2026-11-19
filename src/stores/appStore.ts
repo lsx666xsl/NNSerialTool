@@ -1,4 +1,4 @@
-import { computed, reactive, ref, watch } from 'vue';
+import { computed, markRaw, reactive, ref, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import type {
@@ -15,7 +15,8 @@ import type {
   ThemeMode,
 } from '../types';
 import { isBoolean, isFiniteNumber, isString, readStorage, readStorageChecked, writeStorage } from '../utils/storage';
-import { bytesToHex, decodeBytes, hexToBytes, nowText, todayText } from '../utils/format';
+import { bytesToHex, decodeBytes, hexToBytes, nowText, timeText, todayText } from '../utils/format';
+import { splitLogTags } from '../utils/logLevel';
 import { netSessionName } from '../utils/session';
 import { dispatchRawData, setAppBridge, setTheme } from '../plugins/host';
 import { crumb } from '../debug/stall-watchdog';
@@ -255,6 +256,7 @@ let unlistenSerialData: UnlistenFn | undefined;
 let unlistenSerialDisconnect: UnlistenFn | undefined;
 let unlistenNetData: UnlistenFn | undefined;
 let unlistenNetDisconnect: UnlistenFn | undefined;
+let unlistenNetReadError: UnlistenFn | undefined;
 let unlistenAutoSent: UnlistenFn | undefined;
 let unlistenAutoSendStopped: UnlistenFn | undefined;
 
@@ -275,11 +277,11 @@ export const exportSessionLog = async (session: ConnectionSession) => {
       // 所见即所导：工具带「标签」总开关关闭时，导出内容也不带时间戳/RX/TX 前缀
       const meta = showMessageMeta.value;
       const dir = meta && (m.snap ? (m.direction === 'RX' ? m.snap.rx : m.snap.tx) : true);
-      const hex = m.snap ? m.snap.hex : (session.hexMode ?? false);
       let line = '';
       if (meta) line += `${m.time} `;
       if (dir) line += `${m.direction} `;
-      line += hex && m.raw ? bytesToHex(m.raw) : m.text;
+      // 直接复用入库时按快照算好的显示文本，不依赖原始字节数组
+      line += m.hexText ?? m.text;
       return line;
     });
   if (lines.length === 0) {
@@ -306,48 +308,102 @@ export const exportSessionLog = async (session: ConnectionSession) => {
 };
 
 // ---------- 消息写入 ----------
-// RX/TX 数据写总线（仅限已加入总览的会话）+ 会话内消息，各自上限 2000 条。
+// RX/TX 数据写会话内消息 + 总线（仅限已加入总览的会话）。
 // INFO 系统提示不再入消息流，统一走 notify() 中央通知。
-const appendGlobalMessage = (session: ConnectionSession, direction: MessageDirection, text: string) => {
-  if (!session.inBus) return; // 总览选择性加入：未加入的会话不汇入总线
-  globalMessages.value.push({
-    id: `${Date.now()}-${Math.random()}`,
-    time: nowText(),
-    sessionId: session.id,
-    sessionName: session.name,
-    direction,
-    text,
-  });
+// 会话上限 10 万行：921600 波特 ≈1800 行/秒，约合 55 秒满速日志；
+// 虚拟滚动只渲染视口行，因此行数很大也不影响每帧刷新成本。
+// 总线（总览）是跨会话概览，保留 5000 行即可（未虚拟化，过大反而拖慢）。
+// 裁剪策略：攒到水位线后一次性裁回上限，而不是满上限后逐条删——
+// 逐条删会让 v-memo 的“按数组下标缓存”每帧全部失效，稳态下每帧重建整表。
+const SESSION_MESSAGE_CAP = 100_000;
+const SESSION_MESSAGE_TRIM_AT = 120_000;
+const BUS_MESSAGE_CAP = 5_000;
+const BUS_MESSAGE_TRIM_AT = 6_000;
 
-  if (globalMessages.value.length > 2000) {
-    globalMessages.value.splice(0, globalMessages.value.length - 2000);
+// 时间戳语义：**数据到达（被 Rust 读线程读到）的时刻**，不是显示时刻。
+// Rust 在 emit 前给每个数据事件打 at_ms（epoch 毫秒），这里按它格式化；
+// 缺失时才退化为“收到事件的时刻”。仍做单调钳制：时钟回拨/同一毫秒内多行都不会倒退，
+// 且 RX/TX 按入队序号写入，所以「时间倒流」不会因改用到达时间而回归。
+let lastStampMs = 0;
+const stampAt = (atMs?: number) => {
+  const candidate = atMs && atMs > 0 ? atMs : Date.now();
+  if (candidate > lastStampMs) lastStampMs = candidate;
+  return timeText(lastStampMs);
+};
+
+// 兼容：没有到达时间时（如本地提示、旧路径）就用当前时刻
+const stampNow = () => stampAt(Date.now());
+
+// time：该行写入消息框的时刻（单调递增，见 stampNow）
+const appendGlobalMessage = (
+  session: ConnectionSession,
+  direction: MessageDirection,
+  text: string,
+  time = stampNow()
+) => {
+  if (!session.inBus) return; // 总览选择性加入：未加入的会话不汇入总线
+  // markRaw：消息对象创建后不再修改，跳过深层响应式代理，省掉每帧的代理访问
+  globalMessages.value.push(
+    markRaw({
+      id: `${Date.now()}-${Math.random()}`,
+      time,
+      sessionId: session.id,
+      sessionName: session.name,
+      direction,
+      text,
+    })
+  );
+
+  if (globalMessages.value.length > BUS_MESSAGE_TRIM_AT) {
+    globalMessages.value.splice(0, globalMessages.value.length - BUS_MESSAGE_CAP);
   }
 };
 
-const appendSessionMessage = (session: ConnectionSession, direction: MessageDirection, text: string, bytes?: number[]) => {
+// 显示开关快照只有「RX/TX/HEX 三个布尔」的 8 种组合：复用同一个对象。
+// 10 万行时能省掉 10 万个小对象（内存与 GC 压力都明显下降）。
+const snapCache = new Map<string, { rx: boolean; tx: boolean; hex: boolean }>();
+const snapOf = (rx: boolean, tx: boolean, hex: boolean) => {
+  const key = `${rx ? 1 : 0}${tx ? 1 : 0}${hex ? 1 : 0}`;
+  let snap = snapCache.get(key);
+  if (!snap) {
+    snap = { rx, tx, hex };
+    snapCache.set(key, snap);
+  }
+  return snap;
+};
+
+const appendSessionMessage = (
+  session: ConnectionSession,
+  direction: MessageDirection,
+  text: string,
+  bytes?: number[],
+  hexSnap = session.hexMode ?? false,
+  time = stampNow()
+) => {
+  // 入队时刻的显示开关快照：HEX/方向前缀只对新数据生效，旧消息保持原样；
+  // 方向显示关闭期间入队的行标记 hidden（不补显示：重开后只显示新数据，隐藏期数据不入框）
+  const hex = hexSnap;
   const message: SessionMessage = {
     id: `${Date.now()}-${Math.random()}`,
-    time: nowText(),
+    time,
     direction,
     text,
     raw: bytes,
-    // 固化入队时刻的显示开关：HEX/方向前缀只对新数据生效，旧消息保持原样；
-    // 方向显示关闭期间入队的行标记 hidden（不补显示：重开后只显示新数据，隐藏期数据不入框）
-    snap: {
-      rx: session.filterRx ?? true,
-      tx: session.filterTx ?? true,
-      hex: session.hexMode ?? false,
-    },
+    // 派生文本入库即算好：消息之后不再变化，渲染层无需重复计算
+    hexText: hex && bytes ? bytesToHex(bytes) : undefined,
+    logSeg: hex ? null : splitLogTags(text),
+    snap: snapOf(session.filterRx ?? true, session.filterTx ?? true, hex),
     hidden: direction === 'RX' ? !(session.filterRx ?? true) : !(session.filterTx ?? true),
   };
-  session.messages.push(message);
+  // markRaw：同 appendGlobalMessage，消息对象之后不会再被改写（只有数组的 push/splice）
+  session.messages.push(markRaw(message));
 
-  if (session.messages.length > 2000) {
-    session.messages.splice(0, session.messages.length - 2000);
-    // 静默丢弃会让用户误以为数据都在，裁剪时提示一次并指路日志开关
+  if (session.messages.length > SESSION_MESSAGE_TRIM_AT) {
+    session.messages.splice(0, session.messages.length - SESSION_MESSAGE_CAP);
+    // 静默丢弃会让用户误以为数据都在，裁剪时提示一次并指路日志导出
     if (!session.warnedOverflow) {
       session.warnedOverflow = true;
-      notify('消息已达 2000 条上限，最早的数据已移出界面；开启「保存日志」可留存完整数据');
+      notify(`消息已达 ${SESSION_MESSAGE_CAP} 行上限，最早的数据已移出界面；需要完整日志请用「导出」或 nn 命令行`);
     }
   }
 };
@@ -376,14 +432,17 @@ export const notify = (text: string) => {
 // 单规则模型：一次只允许一条转发路径，再次"开启"直接覆盖。
 const forwardRules = ref<ForwardRule[]>([]);
 
-// 会话关闭/断开时调用：生效中的转发涉及该会话则自动关闭转发
-const stopForwardIfInvolved = (sessionId: string) => {
+// 会话关闭/断开时调用：生效中的转发涉及该会话则自动关闭转发。
+// silent=true 时不单独弹提示，由调用方把它合并进自己的提示里（避免断开时弹两条 toast）。
+const stopForwardIfInvolved = (sessionId: string, silent = false) => {
   const rule = forwardRules.value[0];
-  if (rule && (rule.fromId === sessionId || rule.toId === sessionId)) {
-    forwardRules.value = [];
+  if (!rule || (rule.fromId !== sessionId && rule.toId !== sessionId)) return false;
+  forwardRules.value = [];
+  if (!silent) {
     const name = sessions.value.find((s) => s.id === sessionId)?.name ?? '';
     notify(`转发已关闭（${name} 已断开）`);
   }
+  return true;
 };
 
 export const startForward = (fromId: string, toId: string) => {
@@ -636,6 +695,7 @@ export const removeSession = async (session: ConnectionSession) => {
   // 丢弃该会话尚未 flush 的合帧缓冲，避免删除后又冒出迟到消息
   pendingRx.delete(session.id);
   pendingTx.delete(session.id);
+  lineCarry.delete(session.id);
   sessions.value = sessions.value.filter((item) => item.id !== session.id);
   selectedSessionIds.value = selectedSessionIds.value.filter((id) => id !== session.id);
 
@@ -837,6 +897,9 @@ export const clearSessionReceive = (session: ConnectionSession) => {
   // 丢弃合帧缓冲与流式解码残留：清空后不再冒出迟到数据，也不会与旧半字符拼接
   pendingRx.delete(session.id);
   pendingTx.delete(session.id);
+  lineCarry.delete(session.id);
+  // 清空后重新计数：否则再次涨到上限时不会再提示“已达上限”
+  session.warnedOverflow = false;
   resetDecoders(session);
 };
 
@@ -872,12 +935,16 @@ const forwardIfConfigured = (session: ConnectionSession, text: string, bytes?: n
     const target = sessions.value.find((item) => item.id === rule.toId);
     if (target && target.id !== session.id && target.status === 'connected') {
       void sendForwarded(target, text, payload);
+      // 二进制内容按 UTF-8 展示会变成控制符/替换符（不可读）：含不可打印字节时改显示 HEX
+      const shown = /[\u0000-\u0008\u000B\u000C\u000E-\u001F]/.test(text) && payload.length > 0
+        ? bytesToHex(payload)
+        : text;
       forwardLogs.value.push({
         id: `${Date.now()}-${Math.random()}`,
         time: nowText(),
         fromName: session.name,
         toName: target.name,
-        text,
+        text: shown,
       });
       if (forwardLogs.value.length > 500) {
         forwardLogs.value.splice(0, forwardLogs.value.length - 500);
@@ -1071,35 +1138,123 @@ const onSystemThemeChange = (e: MediaQueryListEvent) => {
 };
 
 // ---------- 流式 UTF-8 解码 ----------
-// 一次 read/auto-sent 事件的字节可能恰好切断多字节字符（中文 3 字节、emoji 4 字节）。
-// 每会话 RX/TX 各持一个流式 TextDecoder：跨事件续接半字符；关闭/断开/清空时重置，旧残留直接丢弃。
-let decoderMap = new WeakMap<ConnectionSession, { rx: TextDecoder; tx: TextDecoder }>();
-const decodersOf = (session: ConnectionSession) => {
+// 流式 UTF-8 解码：RX 必须按会话 + 来源隔离；TCP 服务端/UDP 多来源交替拆包时，
+// 共用解码器会把 A 的半字符与 B 的字节拼接成乱码。TX 则每会话一份。
+let decoderMap = new WeakMap<ConnectionSession, Map<string, TextDecoder>>();
+const decoderOf = (session: ConnectionSession, source: string) => {
   let decoders = decoderMap.get(session);
   if (!decoders) {
-    decoders = { rx: new TextDecoder('utf-8'), tx: new TextDecoder('utf-8') };
+    decoders = new Map();
     decoderMap.set(session, decoders);
   }
-  return decoders;
+  let decoder = decoders.get(source);
+  if (!decoder) {
+    decoder = new TextDecoder('utf-8');
+    decoders.set(source, decoder);
+  }
+  return decoder;
 };
-const decodeRxStream = (session: ConnectionSession, data: number[]) =>
-  decodersOf(session).rx.decode(new Uint8Array(data), { stream: true });
+const decodeRxStream = (session: ConnectionSession, data: number[], source = 'rx') =>
+  decoderOf(session, source).decode(new Uint8Array(data), { stream: true });
 const decodeTxStream = (session: ConnectionSession, data: number[]) =>
-  decodersOf(session).tx.decode(new Uint8Array(data), { stream: true });
+  decoderOf(session, 'tx').decode(new Uint8Array(data), { stream: true });
 // 重置该会话的解码器（关闭/断开/清空/重开时调用：旧半字符不得与新数据拼接）
 const resetDecoders = (session: ConnectionSession) => {
   decoderMap.delete(session);
+  lineCarry.delete(session.id);
+};
+
+// ---------- 行缓冲（终端式“一行一条”） ----------
+// 合帧会把一帧内收到的所有文本拼成一段，直接入库就会变成“一行里塞十几条日志”，
+// 与 nn 终端一行一条的观感完全不同。这里按 \n 切行后再入库：一行 = 一条消息；
+// 末尾没有换行的半行留在 carry 里等下一次数据拼上（与 nn 的 Sink::feed 同一套语义）。
+// 但设备不一定按行结尾：数据静默 PARTIAL_FLUSH_MS 后，半行也要当一条刷出来，
+// 否则“不换行的日志一条都看不见”（终端是边收边显示的，这里用静默计时器逼近该观感）。
+// 键 = 会话 id → 来源前缀（TCP 服务端/UDP 多来源各自维护自己的半行，不会互相串行）。
+type LineCarry = { text: string; session: ConnectionSession; prefix: string; at: number };
+const lineCarry = new Map<string, Map<string, LineCarry>>();
+// 半行上限：设备吐无换行的二进制流时不能无限攒（与 nn 的 64KB 强制切行一致）
+const LINE_CARRY_MAX = 64 * 1024;
+const PARTIAL_FLUSH_MS = 120;
+let carryTimer: ReturnType<typeof setTimeout> | undefined;
+
+const carryOf = (session: ConnectionSession) => {
+  let perSession = lineCarry.get(session.id);
+  if (!perSession) {
+    perSession = new Map();
+    lineCarry.set(session.id, perSession);
+  }
+  return perSession;
+};
+
+// 把本批文本切成“可成行的完整行”，末尾半行写回 carry（时间戳在入库时按写入时刻取）
+const takeLines = (session: ConnectionSession, prefix: string, text: string, at: number, source = prefix): string[] => {
+  const perSession = carryOf(session);
+  const carry = perSession.get(source);
+  const buf = (carry?.text ?? '') + text;
+  const parts = buf.split('\n');
+  let tail = parts.pop() ?? '';
+  // 无换行的超长半行：强制切出，避免二进制流把内存顶爆
+  while (tail.length >= LINE_CARRY_MAX) {
+    parts.push(tail.slice(0, LINE_CARRY_MAX));
+    tail = tail.slice(LINE_CARRY_MAX);
+  }
+  perSession.set(source, { text: tail, session, prefix, at });
+  return parts.map((line) => (line.endsWith('\r') ? line.slice(0, -1) : line));
+};
+
+// 静默兜底：把各来源攒着的半行各当成一条消息刷出（数据不换行时也能立刻看到内容）
+const flushPartialLines = () => {
+  carryTimer = undefined;
+  // 本批 pending 的入队序号早于这些半行的提交时刻，先提交它们以保持时间线顺序
+  flushFrame();
+  for (const perSession of lineCarry.values()) {
+    for (const [source, carry] of [...perSession]) {
+      const text = carry.text.endsWith('\r') ? carry.text.slice(0, -1) : carry.text;
+      perSession.delete(source);
+      if (!text) continue;
+      carry.session.messageCount += 1;
+      // 半行兜底：时间戳仍用该行最后一个字节的到达时间，不是 120ms 后刷出的时刻
+      const carryStamp = stampAt(carry.at);
+      appendGlobalMessage(carry.session, 'RX', carry.prefix + text, carryStamp);
+      appendSessionMessage(carry.session, 'RX', carry.prefix + text, undefined, false, carryStamp);
+    }
+  }
+  if (hasPendingCarry()) scheduleCarryFlush();
+};
+
+const scheduleCarryFlush = () => {
+  if (carryTimer !== undefined) return;
+  carryTimer = setTimeout(flushPartialLines, PARTIAL_FLUSH_MS);
+};
+
+// 是否还有没刷出的半行（有才需要挂兜底计时器）
+const hasPendingCarry = () => {
+  for (const perSession of lineCarry.values()) {
+    for (const carry of perSession.values()) {
+      if (carry.text) return true;
+    }
+  }
+  return false;
 };
 
 // ---------- 接收合帧 ----------
 // 高波特率下 RX 事件频率可达每秒数百次，逐条渲染会造成卡顿；
-// 按会话累积文本，16ms（一帧）批量刷入消息流——显示粒度极限，转发也随之整批进行。
+// 按会话累积文本，与渲染帧对齐批量刷入消息流——显示粒度就是屏幕刷新周期。
 // raw 为原始数据（用于转发透传），prefix 为显示前缀（如 TCP 来源地址），二者分离保证转发不带显示标记。
 // 字节用 chunks 分块收集、flush 时一次拼接：此前 concat 每批全量拷贝，突发大流量下 O(n²)。
 // 按 prefix 分段：同一帧里 TCP 服务端/UDP 多个来源的地址前缀各成一段，不会互相覆盖丢失。
-type RxSegment = { prefix: string; raw: string; chunks?: number[][] };
-const pendingRx = new Map<string, { session: ConnectionSession; segments: RxSegment[] }>();
-let rxFlushScheduled = false;
+// seq 记录入队顺序；同一帧里 RX/TX 按它排序写入，显示时间戳取入库时刻
+// at：这批数据的到达时间（Rust 读到时打的 epoch 毫秒），用于显示时间戳
+type RxSegment = { prefix: string; raw: string; chunks?: number[][]; seq: number; source: string; hex: boolean; at: number };
+// 全局入队序号：同一帧里 RX 段与 TX 批按它排序写入，保证“发送 → 回显”的先后与终端一致
+let flushSeq = 0;
+type PendingRx = { session: ConnectionSession; segments: RxSegment[]; bytes: number };
+const pendingRx = new Map<string, PendingRx>();
+
+// 单会话未刷出的接收缓冲上限（字节）。窗口被最小化/完全遮挡时 rAF 停摆，兜底计时器也会被
+// 浏览器节流（可低至秒级），合帧缓冲会一直涨；超限即强制刷出，避免恢复时一次吐出巨量单行。
+const PENDING_RX_CAP = 1024 * 1024;
 
 // 合并分块字节（单块直接复用，避免每帧全量拷贝）
 const mergeChunks = (chunks?: number[][]): number[] | undefined => {
@@ -1110,104 +1265,160 @@ const mergeChunks = (chunks?: number[][]): number[] | undefined => {
   return bytes;
 };
 
-// 合帧调度与渲染帧对齐（rAF）：延迟稳定为一帧、无定时器精度抖动
-// （Windows 定时器精度 ~15.6ms，setTimeout(16) 实际落点会抖）；后台标签页 rAF 自动暂停，
-// 回前台立即补发，与原定时器方案的后台行为等价
-const scheduleRxFlush = () => {
-  if (rxFlushScheduled) return;
-  rxFlushScheduled = true;
-  // 前台：渲染帧对齐（最低延迟）；后台/最小化窗口 rAF 会暂停——
-  // 补 250ms 兜底定时器（先到先执行并清标志，后到的对空缓冲空转，无害）
-  requestAnimationFrame(() => flushPendingRx());
-  setTimeout(() => flushPendingRx(), 250);
+// ---------- 帧合批调度（RX/TX 共用） ----------
+// 一帧只 patch 一次：旧实现 RX、TX 各一套 rAF 调度，自动发送与接收并存时同一帧要 patch 两次，
+// 每次 patch 都是 O(消息条数) 的 diff，帧内渲染成本直接翻倍。
+// rAF 与渲染帧对齐（延迟 = 到下一个 vsync，无定时器精度抖动）；窗口最小化/遮挡时 rAF 暂停，
+// 由 250ms 兜底计时器接管（隐藏页计时器本身会被浏览器节流，故另有 PENDING_RX_CAP 兜底）。
+let frameScheduled = false;
+let frameRaf = 0;
+let frameTimer: ReturnType<typeof setTimeout> | undefined;
+// 防重入：flush 期间插件回调可能再次入队，那批数据留给下一帧，不能递归下去
+let flushing = false;
+
+const cancelFrame = () => {
+  if (frameRaf) {
+    cancelAnimationFrame(frameRaf);
+    frameRaf = 0;
+  }
+  if (frameTimer !== undefined) {
+    clearTimeout(frameTimer);
+    frameTimer = undefined;
+  }
 };
 
-const flushPendingRx = () => {
-  rxFlushScheduled = false;
+const flushFrame = () => {
+  if (flushing) return;
+  frameScheduled = false;
+  cancelFrame(); // 两条通道只有先到的一次生效，另一条撤销
+  flushing = true;
   try {
-    for (const { session, segments } of pendingRx.values()) {
-      for (const segment of segments) {
-        const bytes = mergeChunks(segment.chunks);
-        const display = segment.prefix + segment.raw;
-        session.messageCount += 1;
-        appendGlobalMessage(session, 'RX', display);
-        appendSessionMessage(session, 'RX', display, bytes);
-        // 转发按原始字节透传（显示前缀不随转发带走）
-        forwardIfConfigured(session, segment.raw, bytes);
-        // 插件管线与消息流同帧合批：每会话每帧至多派发一次，
-        // 高波特率下逐事件派发会让订阅插件（如 Hello 的整段重渲染）把主线程打死。
-        // 插件异常必须隔离：一个插件抛错不能打断合帧，也不能导致数据重复入队。
-        if (bytes && bytes.length > 0) {
-          try {
-            dispatchRawData(session.id, session.name, bytes);
-          } catch (e) {
-            console.warn('[dispatch] 插件数据处理异常', e);
-            crumb('dispatch-error ' + session.name);
-          }
+    // RX 段与 TX 批按“入队序号”统一排序后再写：同一帧里“先发出、后回显”的顺序才不会被写反
+    //（旧实现固定先刷 RX 再刷 TX，同一帧内的 TX/RX 会显示成“回显在发送之前”）。
+    const jobs: Array<{ seq: number; run: () => void }> = [];
+    if (pendingRx.size > 0) {
+      const rxBatch = [...pendingRx.values()];
+      pendingRx.clear();
+      for (const { session, segments } of rxBatch) {
+        for (const segment of segments) {
+          jobs.push({ seq: segment.seq, run: () => flushRxSegment(session, segment) });
         }
       }
     }
+    if (pendingTx.size > 0) {
+      const txBatch = [...pendingTx.values()];
+      pendingTx.clear();
+      for (const item of txBatch) {
+        jobs.push({ seq: item.seq, run: () => flushTxItem(item) });
+      }
+    }
+    jobs.sort((a, b) => a.seq - b.seq);
+    for (const job of jobs) {
+      // 单批异常只丢这一批：一个插件抛错不能连带丢掉同帧其它会话的数据
+      try {
+        job.run();
+      } catch (e) {
+        console.warn('[flush] 批处理异常', e);
+        crumb('flush-error');
+      }
+    }
+    // 还留着没等到换行的半行：挂一个静默兜底，避免“不换行的日志一条都不显示”
+    if (hasPendingCarry()) scheduleCarryFlush();
   } finally {
-    // 无论如何清空缓冲：异常路径也不允许残留（残留会在下一帧重复入队）
-    pendingRx.clear();
+    flushing = false;
   }
 };
 
-const enqueueRx = (session: ConnectionSession, raw: string, prefix = '', bytes?: number[]) => {
+const scheduleFrame = () => {
+  if (frameScheduled) return;
+  frameScheduled = true;
+  frameRaf = requestAnimationFrame(flushFrame);
+  frameTimer = setTimeout(flushFrame, 250);
+};
+
+// 写入一段接收数据（一个来源在前缀分段内的一批字节）
+const flushRxSegment = (session: ConnectionSession, segment: RxSegment) => {
+  const bytes = mergeChunks(segment.chunks);
+  // 该段数据的到达时间（Rust 读到时刻）：整段行共用；缺失时取当前时刻
+  const stamp = stampAt(segment.at);
+  // HEX 显示按原始字节，不依赖文本解码结果；空字节包不制造空消息。
+  // 用段上固化的 hex 快照（入队时取值），保证“开关只影响新数据”的语义
+  if (segment.hex) {
+    if (bytes && bytes.length > 0) {
+      // HEX 行同样带来源前缀（多客户端/多 UDP 来源才分得清），与文本模式的显示与导出一致
+      const shown = segment.prefix + bytesToHex(bytes);
+      session.messageCount += 1;
+      appendGlobalMessage(session, 'RX', shown, stamp);
+      appendSessionMessage(session, 'RX', shown, undefined, true, stamp);
+    }
+    forwardIfConfigured(session, segment.raw, bytes);
+    if (bytes && bytes.length > 0) dispatchSafely(session, bytes);
+    return;
+  }
+  const lines = takeLines(session, segment.prefix, segment.raw, segment.at, segment.source);
+  for (const line of lines) {
+    session.messageCount += 1;
+    appendGlobalMessage(session, 'RX', segment.prefix + line, stamp);
+    appendSessionMessage(session, 'RX', segment.prefix + line, undefined, false, stamp);
+  }
+  // 转发与插件独立执行，某一步异常不应吞掉另一路的原始字节
+  forwardIfConfigured(session, segment.raw, bytes);
+  if (bytes && bytes.length > 0) dispatchSafely(session, bytes);
+};
+
+const dispatchSafely = (session: ConnectionSession, bytes: number[]) => {
+  try {
+    dispatchRawData(session.id, session.name, bytes);
+  } catch (e) {
+    console.warn('[dispatch] 插件数据处理异常', e);
+    crumb('dispatch-error ' + session.name);
+  }
+};
+
+const enqueueRx = (session: ConnectionSession, raw: string, prefix = '', bytes?: number[], source = prefix, at = 0) => {
   let item = pendingRx.get(session.id);
   if (!item) {
-    item = { session, segments: [] };
+    item = { session, segments: [], bytes: 0 };
     pendingRx.set(session.id, item);
   }
+  item.bytes += bytes ? bytes.length : raw.length;
   const last = item.segments[item.segments.length - 1];
   // 连续同前缀合并为一段；来源变化（TCP 服务端多客户端/UDP 多来源）另起一段，前缀不会互相覆盖
-  if (last && last.prefix === prefix) {
+  if (last && last.prefix === prefix && last.hex === session.hexMode) {
     last.raw += raw;
+    last.at = at || last.at; // 合并进来的更晚到达：取最后一次的到达时间
     if (bytes) (last.chunks ??= []).push(bytes);
   } else {
-    item.segments.push({ prefix, raw, chunks: bytes ? [bytes] : undefined });
+    item.segments.push({ prefix, raw, chunks: bytes ? [bytes] : undefined, seq: ++flushSeq, source, hex: session.hexMode ?? false, at });
   }
-  scheduleRxFlush();
+  // 缓冲超限（后台 rAF 停摆 + 计时器被节流时的保护）：立即刷出，不等下一帧
+  if (item.bytes >= PENDING_RX_CAP) flushFrame();
+  scheduleFrame();
 };
 
 // TX 合帧：自动发送由 Rust 线程直接写出（绕过前端 sendData），通过 auto-sent 事件回填 TX 记录
 // 字节同样 chunks 分块收集（同 enqueueRx，防 concat O(n²)）
-const pendingTx = new Map<string, { session: ConnectionSession; raw: string; chunks?: number[][] }>();
-let txFlushScheduled = false;
+type PendingTx = { session: ConnectionSession; raw: string; chunks?: number[][]; seq: number; at: number };
+const pendingTx = new Map<string, PendingTx>();
 
-// TX 合帧同样 rAF 对齐（与 RX 同帧节奏）
-const scheduleTxFlush = () => {
-  if (txFlushScheduled) return;
-  txFlushScheduled = true;
-  // 同 scheduleRxFlush：rAF + 后台兜底
-  requestAnimationFrame(() => flushPendingTx());
-  setTimeout(() => flushPendingTx(), 250);
+const flushTxItem = ({ session, raw, chunks, at }: PendingTx) => {
+  const bytes = mergeChunks(chunks);
+  const stamp = stampAt(at);
+  session.messageCount += 1;
+  appendGlobalMessage(session, 'TX', raw, stamp);
+  appendSessionMessage(session, 'TX', raw, bytes, undefined, stamp);
 };
 
-const flushPendingTx = () => {
-  try {
-    for (const { session, raw, chunks } of pendingTx.values()) {
-      const bytes = mergeChunks(chunks);
-      session.messageCount += 1;
-      appendGlobalMessage(session, 'TX', raw);
-      appendSessionMessage(session, 'TX', raw, bytes);
-    }
-  } finally {
-    // 无论如何重置调度标记并清空缓冲（异常路径不残留、不重复入队）
-    txFlushScheduled = false;
-    pendingTx.clear();
-  }
-};
-
-const enqueueTx = (session: ConnectionSession, raw: string, bytes?: number[]) => {
+const enqueueTx = (session: ConnectionSession, raw: string, bytes?: number[], at = 0) => {
   let item = pendingTx.get(session.id);
   if (!item) {
-    item = { session, raw: '', chunks: undefined };
+    item = { session, raw: '', seq: ++flushSeq, at };
     pendingTx.set(session.id, item);
   }
   item.raw += raw;
+  if (at) item.at = at; // 同一批里更晚的写出时间
   if (bytes) (item.chunks ??= []).push(bytes);
-  scheduleTxFlush();
+  scheduleFrame();
 };
 
 const findSerialSessionByPort = (port: string) =>
@@ -1268,14 +1479,15 @@ export const initApp = async () => {
 
   // serial-read_data 是 Rust 读线程 emit 出来的事件。
   // payload 里带 port，所以前端能知道这段数据属于哪个会话。
-  unlistenSerialData = await listen<{ port: string; data: number[] }>('serial-read_data', (event) => {
+  unlistenSerialData = await listen<{ port: string; data: number[]; at_ms?: number }>('serial-read_data', (event) => {
     const session = findSerialSessionByPort(event.payload.port);
     if (!session) return;
 
     session.rxBytes += event.payload.data.length;
     // 流式解码：被事件边界切断的 UTF-8 半字符由本会话解码器续接
     const text = decodeRxStream(session, event.payload.data);
-    enqueueRx(session, text, '', event.payload.data);
+    // at_ms = Rust 读到数据的时刻（到达时间），用作显示时间戳
+    enqueueRx(session, text, '', event.payload.data, '', event.payload.at_ms);
   });
 
   unlistenSerialDisconnect = await listen<string>('serial-disconnect', (event) => {
@@ -1284,25 +1496,28 @@ export const initApp = async () => {
 
     session.status = 'closed';
     session.statusMsg = `串口 ${event.payload} 已断开`;
+    // 断开保留尾数据：先刷合帧与半行，再清理解码状态
+    flushFrame();
+    flushPartialLines();
     resetDecoders(session);
-    // 会话断开联动：生效中的转发涉及该会话则自动关闭
-    stopForwardIfInvolved(session.id);
+    // 会话断开联动：生效中的转发涉及该会话则自动关闭（提示合并进下面这条，避免弹两条）
+    const fwdClosed = stopForwardIfInvolved(session.id, true);
     // 若自动发送锁定该会话，断开后解除锁定并弹回开关（后端任务已随 close 停止）
     releaseLoopFor(session.id);
-    notify(session.statusMsg);
+    notify(fwdClosed ? `${session.statusMsg}（转发已自动关闭）` : session.statusMsg);
     // 断开后主动清理 Rust 侧状态表，否则死句柄残留会导致同端口无法重新打开
     invoke('serial_close', { port: session.config.port }).catch(() => {});
   });
 
   // auto-sent 是自动发送线程每次写出后 emit 的事件——回填 TX 记录（合帧）。
   // key：串口为端口号，网络为会话 id。
-  unlistenAutoSent = await listen<{ key: string; data: number[] }>('auto-sent', (event) => {
+  unlistenAutoSent = await listen<{ key: string; data: number[]; at_ms?: number }>('auto-sent', (event) => {
     const key = event.payload.key;
     const session = findSerialSessionByPort(key) || sessions.value.find((item) => item.id === key);
     if (!session) return;
 
     session.txBytes += event.payload.data.length;
-    enqueueTx(session, decodeTxStream(session, event.payload.data), event.payload.data);
+    enqueueTx(session, decodeTxStream(session, event.payload.data), event.payload.data, event.payload.at_ms);
   });
 
   // auto-send-stopped：自动发送线程写失败退出时上报——弹回开关并提示原因
@@ -1321,15 +1536,16 @@ export const initApp = async () => {
 
   // net-read_data 是网络读线程 emit 出来的事件。
   // key 对应会话 id；from 为来源地址（TCP 服务端/UDP 场景下区分客户端）。
-  unlistenNetData = await listen<{ key: string; data: number[]; from: string }>('net-read_data', (event) => {
+  unlistenNetData = await listen<{ key: string; data: number[]; from: string; at_ms?: number }>('net-read_data', (event) => {
     const session = sessions.value.find((item) => item.id === event.payload.key);
     if (!session) return;
 
     session.rxBytes += event.payload.data.length;
-    // 流式解码 + 来源前缀：前缀随分段保留，多个客户端同一帧到达也不会互相覆盖
-    const text = decodeRxStream(session, event.payload.data);
+    // 来源身份同时隔离 UTF-8 解码器与行缓冲，多来源交替拆包也不会串成乱码
+    const source = event.payload.from || 'direct';
+    const text = decodeRxStream(session, event.payload.data, source);
     const prefix = event.payload.from ? `[${event.payload.from}] ` : '';
-    enqueueRx(session, text, prefix, event.payload.data);
+    enqueueRx(session, text, prefix, event.payload.data, source, event.payload.at_ms);
   });
 
   unlistenNetDisconnect = await listen<string>('net-disconnect', (event) => {
@@ -1338,14 +1554,22 @@ export const initApp = async () => {
 
     session.status = 'closed';
     session.statusMsg = `连接已断开（${session.name}）`;
+    flushFrame();
+    flushPartialLines();
     resetDecoders(session);
-    // 会话断开联动：生效中的转发涉及该会话则自动关闭
-    stopForwardIfInvolved(session.id);
+    // 会话断开联动：生效中的转发涉及该会话则自动关闭（提示合并，避免弹两条）
+    const fwdClosed = stopForwardIfInvolved(session.id, true);
     // 若自动发送锁定该会话，断开后解除锁定并弹回开关
     releaseLoopFor(session.id);
-    notify(session.statusMsg);
+    notify(fwdClosed ? `${session.statusMsg}（转发已自动关闭）` : session.statusMsg);
     // 断开后主动清理 Rust 侧状态表，否则死句柄残留会导致同 key 无法重新打开
     invoke('net_close', { key: session.id }).catch(() => {});
+  });
+
+  // 服务端某个客户端接入失败（读句柄创建失败）：明确提示，不让它静默变成“连上了但收不到数据”
+  unlistenNetReadError = await listen<string>('net-read-error', (event) => {
+    const session = sessions.value.find((item) => item.id === event.payload);
+    notify(`${session?.name ?? '网络会话'}：一个客户端接入失败（读句柄创建失败），已移除`);
   });
 
   pollTimer = setInterval(refreshPorts, 5000);
@@ -1364,17 +1588,30 @@ export const disposeApp = () => {
   // toast 自动消失定时器：销毁后不得再改状态
   for (const timer of toastTimers) clearTimeout(timer);
   toastTimers.clear();
-  // 刷掉尚未落盘的合帧缓冲，保证最后一批数据不丢（rAF 调度无需清理挂起句柄）
-  flushPendingRx();
-  flushPendingTx();
-  // 重置全部流式解码器、写队列与忙标记，下一次 initApp 从干净状态开始
+  // 刷掉尚未落盘的合帧缓冲，保证最后一批数据不丢；
+  // 同时撤销挂起的 rAF 与兜底计时器，避免销毁后再触发一次 patch
+  flushFrame();
+  flushPartialLines(); // 尾批连同未换行的最后半行一并保留
+  // 重置全部流式解码器、行缓冲、写队列与忙标记，下一次 initApp 从干净状态开始
   decoderMap = new WeakMap();
+  lineCarry.clear();
+  if (carryTimer !== undefined) {
+    clearTimeout(carryTimer);
+    carryTimer = undefined;
+  }
   writeQueues = new WeakMap();
   busySessions.clear();
   unlistenSerialData?.();
   unlistenSerialDisconnect?.();
   unlistenNetData?.();
   unlistenNetDisconnect?.();
+  unlistenNetReadError?.();
   unlistenAutoSent?.();
   unlistenAutoSendStopped?.();
 };
+
+
+
+
+
+

@@ -182,7 +182,7 @@ const onCustomBaudBlur = () => {
         <SelfSelect
           v-model="newSessionConfig.port"
           :options="ports.map((p) => ({ value: p.portnum, label: `${p.portnum} - ${p.portproduct}` }))"
-          placeholder="请选择串口"
+          :placeholder="ports.length === 0 ? '未检测到串口设备（检查连接后点右上角刷新）' : '请选择串口'"
         />
       </div>
 

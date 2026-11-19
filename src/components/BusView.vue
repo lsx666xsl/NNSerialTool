@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, onActivated, onUnmounted, ref, watch } from 'vue';
+import { nextTick, onActivated, ref, watch } from 'vue';
 import SelfSelect from './SelfSelect.vue';
 import {
   busDirectionFilter,
@@ -31,10 +31,6 @@ watch(
     if (el) el.scrollTop = el.scrollHeight;
   }
 );
-
-onUnmounted(() => {
-  writeStorage('st-bus-autoscroll', busAutoScroll.value);
-});
 
 // 从 keep-alive 缓存切回视图时补滚：缓存期间新消息仍在入缓冲（不在 DOM 里滚动），
 // 若自动滚动开启则一次性滚到最新位置，避免切回后停在旧位置

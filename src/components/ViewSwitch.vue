@@ -3,14 +3,17 @@ import { computed } from 'vue';
 import { viewMode } from '../stores/appStore';
 import { views } from '../plugins/registry';
 
-// 视图切换（数据驱动）：内置四视图 + 插件注册视图（自动排在"转发"之后）。
-// 悬停时展示迷你布局缩略图 + 依次点亮的循环动画 + 一句话说明。
-// 视图切换（数据驱动）：内置四视图在前（固定顺序），插件注册视图按注册序排在
-// "转发"之后——排序确定化，不依赖注册时机（HMR 重注册也不会打乱前后分组）。
+// 视图切换（数据驱动）：内置四视图在前（按注册序固定），插件注册视图排在"转发"之后。
+// 插件视图按「插件 id + 视图 id」排序：停用后再启用不会因为重新注册而跑到末尾，顺序始终一致。
 const entries = computed(() => {
-  const ordered = [...views.value].sort(
-    (a, b) => (a.source === 'builtin' ? 0 : 1) - (b.source === 'builtin' ? 0 : 1)
-  );
+  const ordered = [...views.value].sort((a, b) => {
+    const ga = a.source === 'builtin' ? 0 : 1;
+    const gb = b.source === 'builtin' ? 0 : 1;
+    if (ga !== gb) return ga - gb;
+    // 内置组保持注册序（sort 是稳定排序，返回 0 即可）
+    if (ga === 0) return 0;
+    return (a.source ?? '').localeCompare(b.source ?? '') || a.id.localeCompare(b.id);
+  });
   return ordered.map((v) => ({
     key: v.id,
     label: v.name,

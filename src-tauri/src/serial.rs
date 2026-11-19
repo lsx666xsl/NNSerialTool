@@ -7,14 +7,29 @@ use std::sync::{
     Arc, Mutex,
 };
 use std::thread::{self, JoinHandle};
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 /*
 *   描述：串口默认读/写超时（毫秒）。
-*         读线程依赖该超时做 5ms 轮询节奏检查停止标志；
+*         读线程直接阻塞在 read 上等数据：有数据内核立即唤醒（Windows 下 serialport 用
+*         COMMTIMEOUTS 的 MAXDWORD/MAXDWORD/const 组合 = “缓冲有 1 字节就返回”），
+*         无数据最多等该值——因此它同时是 stop_flag 的最坏响应时间。
+*         3ms 是“接收延迟”与“写路径排队抖动”的折中（写线程每次最多多等 0~3ms）。
 *         写线程会按“长度/波特率”临时放大写超时，写完立即恢复成该值。
+*         ⚠ COMMTIMEOUTS 是设备级、且一次下发整个结构：放大写超时同时也会放大读超时。
+*           本项目靠“读写共用同一把锁串行化”保证放大窗口内读线程进不来，改动时不要破坏该前提。
 */
-const IO_TIMEOUT_MS: u64 = 100;
+const IO_TIMEOUT_MS: u64 = 3;
+
+/*
+*   描述：读线程的事件合流阈值。
+*         阻塞读“有 1 字节即返回”，不合流时高波特率下会出现上千事件/秒，
+*         每个事件都要 JSON 序列化 + webview.eval，开销会把延迟收益吃掉。
+*         攒够 RX_FLUSH_BYTES 或流量变稀疏（距上次发送 > RX_FLUSH_MS）即发送，事件率封顶约 125/s。
+*/
+const RX_FLUSH_BYTES: usize = 512;
+const RX_FLUSH_MS: u64 = 8;
 
 /*
 *   描述：串口句柄
@@ -65,6 +80,9 @@ impl Default for SerialState {
 struct SerialDataEvent {
     port: String,
     data: Vec<u8>,
+    // 读到数据的到达时间（epoch 毫秒）：前端用它做显示时间戳，
+    // 不受合帧/后台节流导致的显示延迟影响
+    at_ms: u64,
 }
 
 /*
@@ -74,6 +92,8 @@ struct SerialDataEvent {
 struct AutoSentEvent {
     key: String,
     data: Vec<u8>,
+    // 写出该批数据的时刻（epoch 毫秒）：前端 TX 行用它做显示时间戳
+    at_ms: u64,
 }
 
 /*
@@ -86,7 +106,30 @@ pub struct SerialPortInfo {
 }
 
 /*
+*   描述：串口数据事件（读线程合流后一次性派发）
+*/
+fn emit_serial_data(app_handle: &AppHandle, port_name: &str, data: Vec<u8>) {
+    if data.is_empty() {
+        return; // 空事件对前端无意义，只会浪费一次 IPC
+    }
+    let _ = app_handle.emit(
+        "serial-read_data",
+        SerialDataEvent {
+            port: port_name.to_string(),
+            data,
+            at_ms: crate::now_epoch_ms(),
+        },
+    );
+}
+
+/*
 *   描述：读取串口数据（独立 OS 线程，抢占式调度，不占主线程）
+*   说明：线程直接阻塞在 read 上由内核唤醒——旧实现用 bytes_to_read() + sleep(5ms) 轮询，
+*         空档期必须等整轮睡眠结束才发现数据（Windows 定时器粒度下实测每条白等 2.5~15ms），
+*         这是 GUI 与命令行之间最大的一段延迟差。
+*         读到的字节先攒批次再 emit：Windows 的 COMMTIMEOUTS 组合是“缓冲有 1 字节就返回”，
+*         高波特率下不分批会出现上千事件/秒，每条事件都要 JSON 序列化 + 脚本注入，
+*         开销反而会把延迟收益吃回去（分批阈值见 RX_FLUSH_BYTES / RX_FLUSH_MS）。
 *   返回：读线程 JoinHandle，关闭时 join 以释放串口句柄
 */
 fn serial_read_thread(
@@ -97,65 +140,92 @@ fn serial_read_thread(
 ) -> JoinHandle<()> {
     thread::spawn(move || {
         let mut rbuf = [0u8; 4096];
+        // 合流缓冲：一次事件带一个突发内的全部字节（上限 = rbuf 容量，维持“每事件 ≤4KB”约定）
+        let mut pending: Vec<u8> = Vec::with_capacity(rbuf.len());
+        // 上次派发时刻：用于判定“流量稀疏”（稀疏时立即派发，密集时按窗口合流）
+        let mut last_emit: Option<Instant> = None;
+
         loop {
             if stop_flag.load(Ordering::Relaxed) {
-                break;
+                break; // 统一在循环出口派发尾批
             }
 
-            // 先查有没有数据可用（非阻塞，不占锁太久）
-            let rxbufsize = {
-                let sp = match port.lock() {
-                    Ok(sp) => sp,
-                    Err(_) => break,
-                };
-                match sp.bytes_to_read() {
-                    Ok(n) => n as usize,
-                    Err(_) => {
-                        let _ = app_handle.emit("serial-disconnect", &port_name);
-                        break;
-                    }
-                }
-            }; // 锁在此释放
-
-            if rxbufsize == 0 {
-                thread::sleep(std::time::Duration::from_millis(5));
-                continue;
-            }
-
-            // 有数据才锁住读取
             let mut sp = match port.lock() {
                 Ok(sp) => sp,
-                Err(_) => break,
-            };
-            let n = rxbufsize.min(rbuf.len());
-            match sp.read(&mut rbuf[..n]) {
-                Ok(read) => {
-                    drop(sp); // 先放锁再 emit，避免事件派发期间占着串口
-                    let _ = app_handle.emit(
-                        "serial-read_data",
-                        SerialDataEvent {
-                            port: port_name.clone(),
-                            data: rbuf[..read].to_vec(),
-                        },
-                    );
-                }
-                // 读写共用同一 timeout：偶发超时只是本轮没读到数据，继续轮询而不是误判断线
-                Err(e)
-                    if matches!(
-                        e.kind(),
-                        ErrorKind::TimedOut | ErrorKind::WouldBlock | ErrorKind::Interrupted
-                    ) =>
-                {
-                    drop(sp);
-                    continue;
-                }
                 Err(_) => {
-                    drop(sp);
+                    // 锁中毒：尾批不能静默丢，随后按断线退出
                     let _ = app_handle.emit("serial-disconnect", &port_name);
                     break;
                 }
+            };
+
+            let mut got = 0usize;
+            let mut eof = false;
+            let mut fatal = false;
+
+            // 锁内只做 IO：阻塞读（有数据立即返回，无数据最多等 IO_TIMEOUT_MS）
+            match sp.read(&mut rbuf) {
+                // Windows 后端把 0 字节转为 TimedOut，POSIX 通常把 POLLHUP 转为 BrokenPipe；
+                // 这里保留 Ok(0) 作为其他平台/自定义驱动的 EOF 防御，避免忙循环。
+                Ok(0) => eof = true,
+                Ok(n) => {
+                    got = n;
+                    // 排空驱动缓冲：后续已到达的字节一并读走，降低事件条数。
+                    // 补读中的 EOF/致命错误必须向外传播，不能和“本轮已排空”混为一谈。
+                    while got < rbuf.len() && !eof && !fatal {
+                        match sp.bytes_to_read() {
+                            Ok(q) if q > 0 => {
+                                let want = (q as usize).min(rbuf.len() - got);
+                                match sp.read(&mut rbuf[got..got + want]) {
+                                    Ok(m) if m > 0 => got += m,
+                                    Ok(_) => eof = true,
+                                    Err(ref e)
+                                        if matches!(
+                                            e.kind(),
+                                            ErrorKind::TimedOut | ErrorKind::WouldBlock | ErrorKind::Interrupted
+                                        ) => break,
+                                    Err(_) => fatal = true,
+                                }
+                            }
+                            Ok(_) => break,
+                            Err(_) => fatal = true,
+                        }
+                    }
+                }
+                // 读超时只是本轮没数据：回跳检查停止标志后继续阻塞等待，不是断线
+                Err(ref e)
+                    if matches!(
+                        e.kind(),
+                        ErrorKind::TimedOut | ErrorKind::WouldBlock | ErrorKind::Interrupted
+                    ) => {}
+                Err(_) => fatal = true,
+            }
+            drop(sp); // 先放锁：序列化与事件派发都不该占着串口
+
+            if got > 0 {
+                // 超过单事件上限先发走上一批，维持每事件 ≤4KB
+                if pending.len() + got > rbuf.len() || fatal || eof {
+                    emit_serial_data(&app_handle, &port_name, std::mem::take(&mut pending));
+                    last_emit = Some(Instant::now());
+                }
+                pending.extend_from_slice(&rbuf[..got]);
+            }
+            if fatal || eof {
+                // 尾批在下面的统一出口发出；断线顺序保持“数据 → 断线”
+                let _ = app_handle.emit("serial-disconnect", &port_name);
+                break;
+            }
+
+            // 派发条件：攒够 RX_FLUSH_BYTES，或流量稀疏（距上次派发已超 RX_FLUSH_MS）时立即发。
+            // 稀疏/超时路径目标约 125 批/秒；达到 512 字节会提前发，高吞吐不设全局事件率上限。
+            let dense = last_emit.is_some_and(|t| t.elapsed() < Duration::from_millis(RX_FLUSH_MS));
+            if !pending.is_empty() && (pending.len() >= RX_FLUSH_BYTES || !dense) {
+                emit_serial_data(&app_handle, &port_name, std::mem::take(&mut pending));
+                last_emit = Some(Instant::now());
             }
         }
+        // 所有退出路径统一派发尾批：正常停止、锁中毒、EOF、致命错误都不会漏掉最后一批
+        emit_serial_data(&app_handle, &port_name, std::mem::take(&mut pending));
     })
 }
 
@@ -203,7 +273,8 @@ fn serial_write_bytes(
     sp.set_timeout(write_timeout_for(baud, bytes.len()))
         .map_err(|_| "发送失败，串口已断开".to_string())?;
     let result = sp.write_all(bytes);
-    // 读线程依赖 100ms 超时轮询，写完必须恢复，避免长超时拖慢读线程对停止标志的响应
+    // 读线程的读超时与写共用同一套 COMMTIMEOUTS：写完必须恢复成读超时值，
+    // 否则读线程的下一次阻塞读会按放大后的写超时等待，拖慢停止标志响应
     let _ = sp.set_timeout(std::time::Duration::from_millis(IO_TIMEOUT_MS));
     match result {
         Ok(()) => Ok(()),
@@ -408,7 +479,8 @@ pub async fn serial_close(
             task.store(true, Ordering::SeqCst);
         }
         handle.stop_flag.store(true, Ordering::SeqCst);
-        // join 读线程：其 5ms 轮询/100ms 读超时会很快退出；join 后 Arc 归零，端口真正释放
+        // join 读线程：正常路径读超时约 3ms 后检查停止标志；并发长写仍可能占用串口锁，
+        // 因此关闭等待同时受写超时（最长 5s）约束；join 后 Arc 归零，端口真正释放
         if let Some(read_thread) = handle.read_thread {
             let _ = read_thread.join();
         }
@@ -668,6 +740,7 @@ pub async fn serial_auto_send_start(
                     AutoSentEvent {
                         key: port.clone(),
                         data: e.into_bytes(),
+                        at_ms: crate::now_epoch_ms(),
                     },
                 );
                 break;
@@ -678,6 +751,7 @@ pub async fn serial_auto_send_start(
                 AutoSentEvent {
                     key: port.clone(),
                     data: payload.clone(),
+                    at_ms: crate::now_epoch_ms(),
                 },
             );
         });
@@ -706,3 +780,4 @@ pub async fn serial_auto_send_stop(
     .await
     .map_err(|e| format!("任务执行失败: {}", e))?
 }
+

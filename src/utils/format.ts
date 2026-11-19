@@ -1,7 +1,18 @@
 // 时间与字节格式化工具，日志、消息流、总线共用。
-export const nowText = () =>
-  new Date().toLocaleTimeString('zh-CN', { hour12: false }) +
-  `.${String(new Date().getMilliseconds()).padStart(3, '0')}`;
+// 手动拼 HH:mm:ss.SSS：toLocaleTimeString 走国际化格式化（每次数微秒级），
+// 而合帧 flush 里每条消息都要取一次时间，高频下会成为帧内可观测的开销；
+// 同时只取一个 Date，避免跨秒时“秒”与“毫秒”来自两个不同时刻。
+const pad2 = (n: number) => (n < 10 ? '0' + n : String(n));
+
+// 由毫秒时间戳格式化（nowText 与“单调时间戳”共用，保证格式完全一致）
+export const timeText = (ms: number) => {
+  const d = new Date(ms);
+  return `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}.${String(
+    d.getMilliseconds()
+  ).padStart(3, '0')}`;
+};
+
+export const nowText = () => timeText(Date.now());
 
 export const todayText = () => {
   const d = new Date();

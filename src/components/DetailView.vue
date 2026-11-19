@@ -138,10 +138,8 @@ const onResizeHandleDown = (e: PointerEvent) => {
         <div class="work-main">
           <MessageFlow
             :messages="activeSession.messages"
-            :filter-rx="activeSession.filterRx ?? true"
-            :filter-tx="activeSession.filterTx ?? true"
-            :hex-mode="activeSession.hexMode ?? false"
             :auto-scroll="activeSession.autoScroll ?? false"
+            @follow="activeSession.autoScroll = true"
           />
 
           <!-- 工具带：顶部虚线即拖拽热区（按住上下拖调整发送框高度，与接收框互斥）；
@@ -230,7 +228,7 @@ const onResizeHandleDown = (e: PointerEvent) => {
             <button
               class="tb-toggle"
               :class="{ on: activeSession.hexMode ?? false }"
-              title="消息显示 HEX（只影响新收到的数据；关闭=按字符串显示）"
+              title="消息显示 HEX（只影响之后的新消息，收发两侧都按字节显示；关闭=按字符串显示）"
               @click="activeSession.hexMode = !(activeSession.hexMode ?? false)"
             >
               RX HEX

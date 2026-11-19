@@ -1,0 +1,78 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Claude Code (not used)
+.claude/
+CLAUDE.md
+
+# 运行日志（串口日志落盘目录，不上传）
+log/
+
+# 工作文档（工作日志/交接文档/审查记录，仅本地留存）
+doc/
+
+# AI 工具上下文（本地开发辅助，不上传）
+AGENTS.md
+
+# 隔离编译验证目录
+/src-tauri/target-verify/
+.tauri/
+
+# 本地测试脚本（e2e 驱动/数据源，不上传）
+scripts/
+
+# 测试截图（本地验证用，不上传）
+.tmp-shot-*.png
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+__pycache__/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）

@@ -134,6 +134,10 @@ const showStatusError = (session: ConnectionSession) => {
             @click.stop="toggleConnection(session)"
           ></button>
           <strong class="session-name">{{ session.name }}</strong>
+          <!-- 连接状态文字：不只靠状态点颜色，断开时也能一眼看到「已关闭」 -->
+          <span class="session-state" :class="session.status">
+            {{ session.status === 'connected' ? '已连接' : '已关闭' }}
+          </span>
           <button class="x-btn" title="删除会话" @click.stop="removeSession(session)">
             <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
               <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -300,6 +304,36 @@ const showStatusError = (session: ConnectionSession) => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* 连接状态文字：与状态点同色系，小一号，弱化存在感但可读 */
+.session-state {
+  flex: none;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.session-state.connected {
+  color: #2e8b45;
+  background: rgba(46, 139, 69, 0.12);
+}
+
+.session-state.closed {
+  color: #c53030;
+  background: rgba(197, 48, 48, 0.12);
+}
+
+.theme-dark .session-state.connected {
+  color: #6bc97e;
+  background: rgba(107, 201, 126, 0.14);
+}
+
+.theme-dark .session-state.closed {
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.14);
 }
 
 .x-btn {

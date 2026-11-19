@@ -78,11 +78,15 @@ fn safe_rel(rel: &str) -> Result<PathBuf, String> {
         if seg == "." || seg == ".." {
             return Err(format!("非法插件路径段: {seg}"));
         }
-        // 只允许字母/数字/点/下划线/连字符：盘符 "C:"、冒号、通配符等一律拒绝
-        if !seg
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-        {
+        // 允许 ASCII 字母/数字/点/下划线/连字符，也允许非 ASCII 文字（中文等，如「波形快照」）。
+        // 段已按分隔符切分，非 ASCII 分支仍禁止控制符与标点，只放行“文字/数字”，不构成路径逃逸风险。
+        if !seg.chars().all(|c| {
+            if c.is_ascii() {
+                c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')
+            } else {
+                c.is_alphanumeric() && !c.is_control()
+            }
+        }) {
             return Err(format!("非法插件路径段: {seg}"));
         }
         if seg.ends_with('.') || seg.ends_with(' ') {
@@ -426,6 +430,15 @@ mod tests {
         );
         assert!(safe_leaf("wave").is_ok());
         assert!(safe_leaf("wave-1.0").is_ok());
+        // 中文等非 ASCII 文字允许（插件导出子目录用到，如「波形快照」「NNPrintf日志库」）
+        assert_eq!(
+            safe_rel("NN-Wave波形快照/wave.svg").unwrap(),
+            PathBuf::from("NN-Wave波形快照").join("wave.svg")
+        );
+        assert!(safe_leaf("NNPrintf日志库").is_ok());
+        // 非 ASCII 的控制符/分隔符仍拒绝
+        assert!(safe_rel("a\u{2024}b").is_err());
+        assert!(safe_rel("a\u{0085}b").is_err());
     }
 
     #[test]

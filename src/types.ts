@@ -37,12 +37,16 @@ export type NetConfig = {
 
 // 会话内的一条收发记录：流式渲染的最小单元，time 只在需要时展示。
 // raw 为原始字节（十六进制显示模式用；发送侧为实际写出的 UTF-8 字节）
+// hexText / logSeg 是入库时一次性算好的派生文本：消息入库后不再变化，渲染层直接读，
+// 避免每帧对 2000 行重算 HEX 与等级切片（v-memo 在“满 2000 条裁剪”稳态下会逐帧失效）
 export type SessionMessage = {
   id: string;
   time: string;
   direction: MessageDirection;
   text: string;
   raw?: number[];
+  hexText?: string;
+  logSeg?: Array<{ text: string; cls?: string }> | null;
   // 入队时刻的显示开关快照：方向前缀/HEX 只影响"新到的数据"，
   // 旧消息按入队时的规则渲染——切开关不全量翻转历史（大数据量切 HEX 不卡顿）。
   // 时间戳与方向字符的"显隐"由工具带「标签」总开关统一控制（纯显示层，立即生效）。

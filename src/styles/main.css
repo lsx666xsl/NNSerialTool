@@ -15,6 +15,43 @@ body,
   box-sizing: border-box;
 }
 
+/* ============ 原生控件配色 ============
+   color-scheme 决定 WebView2/Chromium 里**原生**滚动条、下拉列表、输入框的配色。
+   不声明的话，深色主题下滚动条仍是浅色系统样式（白色轨道 + 箭头），与界面不协调。 */
+:root {
+  color-scheme: light;
+}
+
+.workspace.theme-dark,
+.theme-dark {
+  color-scheme: dark;
+}
+
+/* 统一滚动条外观：细轨 + 中性滑块，深浅色通用（配合上面的 color-scheme 生效） */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 132, 140, 0.45) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: rgba(128, 132, 140, 0.45);
+  border-radius: 4px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 132, 140, 0.7);
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
 /* ============ 工作区布局与主题 ============ */
 .workspace {
   display: flex;

@@ -60,7 +60,10 @@ pub struct NetHandle {
     stop_flag: Arc<AtomicBool>,
     stream: Option<Arc<Mutex<TcpStream>>>, // TCP 客户端使用
     clients: Option<Arc<Mutex<Vec<TcpClientConn>>>>, // TCP 服务端使用
-    socket: Option<Arc<UdpSocket>>,        // UDP 使用（send 为 &self，无需互斥锁）
+    socket: Option<Arc<UdpSocket>>,        // UDP 使用（send_to 为 &self，无需互斥锁）
+    // UDP 固定发送目标：不调用 connect（connect 会让内核按来源过滤，第三方报文全部收不到），
+    // 发送时走 send_to，接收端 recv_from 仍可收到任意来源。
+    udp_target: Option<SocketAddr>,
 }
 
 impl NetHandle {
@@ -104,6 +107,7 @@ impl NetHandle {
             stream: self.stream.clone(),
             clients: self.clients.clone(),
             socket: self.socket.clone(),
+            udp_target: self.udp_target,
         }
     }
 }
@@ -117,6 +121,7 @@ struct WriteTargets {
     stream: Option<Arc<Mutex<TcpStream>>>,
     clients: Option<Arc<Mutex<Vec<TcpClientConn>>>>,
     socket: Option<Arc<UdpSocket>>,
+    udp_target: Option<SocketAddr>,
 }
 
 /*
@@ -156,6 +161,9 @@ struct NetDataEvent {
     key: String,
     data: Vec<u8>,
     from: String,
+    // 数据读到时的到达时间（epoch 毫秒）：前端用它做显示时间戳，
+    // 避免“显示时刻”晚于真实接收时刻（合帧、后台节流都会把显示推后）
+    at_ms: u64,
 }
 
 /*
@@ -165,6 +173,7 @@ struct NetDataEvent {
 struct AutoSentEvent {
     key: String,
     data: Vec<u8>,
+    at_ms: u64,
 }
 
 /*
@@ -223,8 +232,11 @@ fn net_write_bytes(targets: &WriteTargets, bytes: &[u8]) -> Result<usize, String
         }
         NetKind::Udp => {
             let socket = targets.socket.as_ref().ok_or("句柄异常: 缺少 UDP 套接字")?;
-            // Windows：目标无监听时 send 报 ConnectionReset（ICMP 回报），忽略继续尝试
-            match socket.send(bytes) {
+            let target = targets
+                .udp_target
+                .ok_or_else(|| format!("{} 缺少目标地址，无法发送", targets.label))?;
+            // Windows：目标无监听时 send_to 报 ConnectionReset（ICMP 回报），忽略继续尝试
+            match socket.send_to(bytes, target) {
                 Ok(_) => Ok(1),
                 Err(e) if e.kind() == ErrorKind::ConnectionReset => Ok(1),
                 Err(_) => Err(format!("发送失败，请检查 {} 的目标地址设置", targets.label)),
@@ -250,6 +262,7 @@ fn emit_net_data(app_handle: &AppHandle, key: &str, data: &[u8], from: &str) {
             key: key.to_string(),
             data: data.to_vec(),
             from: from.to_string(),
+            at_ms: crate::now_epoch_ms(),
         },
     );
 }
@@ -265,7 +278,11 @@ fn on_conn_dead(
     app_handle: &AppHandle,
 ) {
     match clients {
-        Some(list) => list.lock().unwrap().retain(|c| c.addr != addr),
+        // 毒锁自愈：读线程 panic 后不能让后续清理也跟着崩（否则客户端列表永远删不掉）
+        Some(list) => list
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|c| c.addr != addr),
         None => {
             let _ = app_handle.emit("net-disconnect", key);
         }
@@ -332,31 +349,59 @@ fn tcp_accept_thread(
 
             match listener.accept() {
                 Ok((stream, addr)) => {
+                    // accept 出来的连接必须显式改回阻塞模式：监听器是非阻塞的，
+                    // Windows 下新套接字会继承该标志，导致读线程立刻 WouldBlock 并被误判为断线，
+                    // 表现为“客户端连上了但一个字节都收不到”。
+                    if stream.set_nonblocking(false).is_err() {
+                        continue;
+                    }
                     let _ = stream.set_write_timeout(Some(Duration::from_millis(1000)));
-                    // 读改阻塞模式（无 read timeout），shutdown 唤醒；Nagle 禁用小包立即发
+                    // Nagle 禁用小包立即发
                     let _ = stream.set_nodelay(true);
                     let shared = Arc::new(Mutex::new(stream));
-                    clients.lock().unwrap().push(TcpClientConn {
-                        addr,
-                        stream: shared.clone(),
-                    });
-
-                    // 每个客户端一个独立读线程（独占 clone 句柄，与写锁分离）
-                    let rd_result = shared.lock().unwrap().try_clone();
-                    if let Ok(rd) = rd_result {
-                        tcp_read_thread(
-                            key.clone(),
+                    // 锁中毒也要继续工作：一个 panic 不能把 accept 线程打死（否则服务端从此收不到任何新客户端）
+                    clients
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .push(TcpClientConn {
                             addr,
-                            rd,
-                            Some(clients.clone()),
-                            stop_flag.clone(),
-                            app_handle.clone(),
-                        );
+                            stream: shared.clone(),
+                        });
+
+                    // 每个客户端一个独立读线程（独占 clone 句柄，与写锁分离）。
+                    // clone 失败时必须把客户端移出列表并上报：否则它会留在广播列表里但没有任何读线程，
+                    // 对端发来的数据永远读不到，且不报断线（表现为“连上了但收不到数据”）。
+                    let rd_result = shared
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .try_clone();
+                    match rd_result {
+                        Ok(rd) => {
+                            tcp_read_thread(
+                                key.clone(),
+                                addr,
+                                rd,
+                                Some(clients.clone()),
+                                stop_flag.clone(),
+                                app_handle.clone(),
+                            );
+                        }
+                        Err(_) => {
+                            clients
+                                .lock()
+                                .unwrap_or_else(|e| e.into_inner())
+                                .retain(|c| c.addr != addr);
+                            let _ = app_handle.emit("net-read-error", &key);
+                        }
                     }
                 }
-                Err(_) => {
+                Err(e) if is_poll_timeout(&e) || e.kind() == ErrorKind::Interrupted => {
                     // 非阻塞模式下没有新连接，稍作等待避免空转
                     thread::sleep(Duration::from_millis(20));
+                }
+                Err(_) => {
+                    // 其他 accept 错误（EMFILE/ECONNABORTED 等）：退让后继续，不能整线程退出
+                    thread::sleep(Duration::from_millis(50));
                 }
             }
         }
@@ -472,6 +517,7 @@ fn build_connection(
                 stream: Some(Arc::new(Mutex::new(stream))),
                 clients: None,
                 socket: None,
+                udp_target: None,
             };
             Ok((
                 handle,
@@ -504,6 +550,7 @@ fn build_connection(
                 stream: None,
                 clients: Some(clients.clone()),
                 socket: None,
+                udp_target: None,
             };
             Ok((
                 handle,
@@ -523,13 +570,23 @@ fn build_connection(
                 .set_read_timeout(Some(Duration::from_millis(POLL_INTERVAL_MS)))
                 .map_err(|e| format!("设置读取超时失败: {}", e))?;
 
-            // 目标地址非空则固定默认发送目标（connect 后只收发该对端，贴近调试工具用法）
-            let target = host.trim();
-            if !target.is_empty() && port > 0 {
-                socket
-                    .connect((target, port))
-                    .map_err(|e| format!("设置目标 {}:{} 失败: {}", target, port, e))?;
-            }
+            // 目标地址非空则固定默认发送目标：**不能用 connect**——
+            // connect 后内核只接收该对端的报文，第三方（设备从别的源端口回包、广播发现等）会被静默丢弃。
+            // 这里只解析出 SocketAddr 留着 send_to 用，接收端 recv_from 仍可收到任意来源。
+            let udp_target = {
+                let target = host.trim();
+                if target.is_empty() || port == 0 {
+                    None
+                } else {
+                    Some(
+                        (target, port)
+                            .to_socket_addrs()
+                            .map_err(|e| format!("解析目标 {}:{} 失败: {}", target, port, e))?
+                            .next()
+                            .ok_or_else(|| format!("解析目标 {}:{} 失败", target, port))?,
+                    )
+                }
+            };
             let label = match socket.local_addr() {
                 Ok(addr) => format!("UDP {}", addr),
                 Err(_) => format!("UDP {}:{}", bind_host, bind_port),
@@ -546,6 +603,7 @@ fn build_connection(
                 stream: None,
                 clients: None,
                 socket: Some(Arc::new(socket)),
+                udp_target,
             };
             Ok((
                 handle,
@@ -833,6 +891,7 @@ pub async fn net_auto_send_start(
                         AutoSentEvent {
                             key: key.clone(),
                             data: payload.clone(),
+                            at_ms: crate::now_epoch_ms(),
                         },
                     );
                 }
@@ -842,6 +901,7 @@ pub async fn net_auto_send_start(
                         AutoSentEvent {
                             key: key.clone(),
                             data: "没有可发送的客户端".as_bytes().to_vec(),
+                            at_ms: crate::now_epoch_ms(),
                         },
                     );
                     break;
@@ -852,6 +912,7 @@ pub async fn net_auto_send_start(
                         AutoSentEvent {
                             key: key.clone(),
                             data: e.into_bytes(),
+                            at_ms: crate::now_epoch_ms(),
                         },
                     );
                     break;
@@ -883,3 +944,4 @@ pub async fn net_auto_send_stop(
     .await
     .map_err(|e| format!("任务执行失败: {}", e))?
 }
+

@@ -57,10 +57,8 @@ const isLooping = (session: import('../types').ConnectionSession) =>
         </div>
         <MessageFlow
           :messages="session.messages"
-          :filter-rx="session.filterRx ?? true"
-          :filter-tx="session.filterTx ?? true"
-          :hex-mode="session.hexMode ?? false"
           :auto-scroll="session.autoScroll ?? false"
+          @follow="session.autoScroll = true"
         />
         <!-- 紧凑工具带：顺序与单屏一致（自动滚动 / 自动换行 / 自动发送+间隔 / 标签 / TX HEX / RX HEX / 导出 / 清空；无拓展命令） -->
         <div class="split-toolbar">
